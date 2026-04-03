@@ -1,0 +1,389 @@
+<script setup>
+import { ref, onMounted } from 'vue'
+import DayMap from './DayMap.vue'
+
+const SHEET_ID = '10Vb7iKPjZC2THOPiMf50MtKMM5K3LQ70VTVdBCuSdlo'
+const SHEET_NAME = 'Itinerary'
+
+// Actual column indices (0-based) from the spreadsheet:
+// 0: time  |  4-5: Thu  |  6-7: Fri  |  8-9: Sat
+// 10-11: Sun  |  12-13: Mon  |  14-15: Tue  |  16-17: Wed
+const DAY_COLS = [
+  { actCol: 6, notesCol: 7 },   // Friday
+  { actCol: 8, notesCol: 9 },   // Saturday
+  { actCol: 10, notesCol: 11 }, // Sunday
+  { actCol: 12, notesCol: 13 }, // Monday
+  { actCol: 14, notesCol: 15 }, // Tuesday
+]
+
+const loading = ref(true)
+const errorMsg = ref(null)
+const activeDay = ref(0)
+
+const days = ref([
+  { label: 'Friday', date: 'July 31', activities: [] },
+  { label: 'Saturday', date: 'Aug 1', activities: [] },
+  { label: 'Sunday', date: 'Aug 2', activities: [] },
+  { label: 'Monday', date: 'Aug 3', activities: [] },
+  { label: 'Tuesday', date: 'Aug 4', activities: [] },
+])
+
+// Convert GViz Date string "Date(1899,11,30,H,M,S)" → "8:00 AM"
+function parseTime(v) {
+  const m = String(v).match(/Date\(\d+,\d+,\d+,(\d+),(\d+)/)
+  if (!m) return null
+  const h = parseInt(m[1])
+  const min = parseInt(m[2])
+  const period = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${h12}:${min.toString().padStart(2, '0')} ${period}`
+}
+
+function cellStr(row, index) {
+  const cell = row.c[index]
+  if (!cell || cell.v == null) return ''
+  return String(cell.v).trim()
+}
+
+function mapsUrl(activity) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activity + ', Seattle')}`
+}
+
+onMounted(async () => {
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&headers=0&sheet=${encodeURIComponent(SHEET_NAME)}`
+
+  try {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const text = await res.text()
+
+    const match = text.match(/google\.visualization\.Query\.setResponse\((.+)\)/)
+    if (!match) throw new Error('Unexpected response format')
+
+    const data = JSON.parse(match[1])
+    if (data.status === 'error') {
+      throw new Error(data.errors?.[0]?.message ?? 'Spreadsheet error')
+    }
+
+    // Rows 0-1 are headers (day names + Activity/Notes labels); data starts at row 2
+    const dataRows = data.table.rows.slice(2)
+
+    dataRows.forEach((row) => {
+      const time = parseTime(row.c[0]?.v)
+      if (!time) return
+
+      DAY_COLS.forEach(({ actCol, notesCol }, i) => {
+        const activity = cellStr(row, actCol)
+        if (!activity) return
+        days.value[i].activities.push({ time, activity, notes: cellStr(row, notesCol) })
+      })
+    })
+  } catch (err) {
+    errorMsg.value = `Could not load itinerary: ${err.message}`
+  } finally {
+    loading.value = false
+  }
+})
+</script>
+
+<template>
+  <div class="itinerary-page">
+    <header class="trip-header">
+      <router-link to="/" class="back-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+        </svg>
+        Home
+      </router-link>
+      <div class="header-inner">
+        <p class="trip-label">Friends Weekend</p>
+        <h1 class="trip-title">Seattle</h1>
+        <p class="trip-dates">July 31 – August 4, 2025</p>
+      </div>
+    </header>
+
+    <main class="itinerary-body">
+      <div v-if="loading" class="state-msg">
+        <div class="spinner" />
+        Loading itinerary…
+      </div>
+
+      <div v-else-if="errorMsg" class="state-msg error">
+        {{ errorMsg }}
+      </div>
+
+      <template v-else>
+        <nav class="day-nav">
+          <button
+            v-for="(day, i) in days"
+            :key="i"
+            :class="['day-btn', { active: activeDay === i }]"
+            @click="activeDay = i"
+          >
+            <span class="day-label">{{ day.label }}</span>
+            <span class="day-date">{{ day.date }}</span>
+          </button>
+        </nav>
+
+        <DayMap :activities="days[activeDay].activities" />
+
+        <section class="timeline">
+          <div v-if="days[activeDay].activities.length === 0" class="empty-day">
+            No activities planned yet — check back soon!
+          </div>
+
+          <div
+            v-for="(item, i) in days[activeDay].activities"
+            :key="i"
+            class="timeline-row"
+          >
+            <div class="time-col">
+              <span class="time-label">{{ item.time }}</span>
+            </div>
+            <div class="connector">
+              <div class="dot" />
+              <div v-if="i < days[activeDay].activities.length - 1" class="line" />
+            </div>
+            <div class="activity-card">
+              <a
+                :href="mapsUrl(item.activity)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="activity-name"
+              >
+                {{ item.activity }}
+                <svg class="pin-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+                </svg>
+              </a>
+              <p v-if="item.notes" class="activity-notes">{{ item.notes }}</p>
+            </div>
+          </div>
+        </section>
+      </template>
+    </main>
+  </div>
+</template>
+
+<style scoped>
+.itinerary-page {
+  min-height: 100vh;
+  background: #fffbf2;
+  font-family: system-ui, 'Segoe UI', sans-serif;
+  color: #3d2b1f;
+}
+
+/* ── Header ── */
+.trip-header {
+  background: #8b7340;
+  color: #fff;
+  padding: 20px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255,255,255,0.8);
+  text-decoration: none;
+  font-size: 14px;
+  transition: color 0.15s;
+  width: fit-content;
+}
+.back-btn:hover { color: #fff; }
+.back-btn svg { width: 16px; height: 16px; }
+.header-inner {
+  max-width: 680px;
+  margin: 0 auto;
+  text-align: center;
+  padding: 16px 0 28px;
+  width: 100%;
+}
+
+.trip-label {
+  font-size: 13px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  opacity: 0.8;
+  margin: 0 0 6px;
+}
+.trip-title {
+  font-size: 52px;
+  font-weight: 300;
+  letter-spacing: -1px;
+  margin: 0 0 8px;
+  line-height: 1;
+}
+.trip-dates {
+  font-size: 16px;
+  opacity: 0.85;
+  margin: 0;
+}
+
+/* ── Body ── */
+.itinerary-body {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 20px 60px;
+}
+
+/* ── Day Nav ── */
+.day-nav {
+  display: flex;
+  gap: 8px;
+  padding: 24px 0 32px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.day-nav::-webkit-scrollbar { display: none; }
+
+.day-btn {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 14px;
+  border: 2px solid #f0e6cc;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  min-width: 86px;
+}
+.day-btn:hover { border-color: #c9a84c; }
+.day-btn.active {
+  border-color: #8b7340;
+  background: #8b7340;
+  color: #fff;
+}
+.day-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.day-date {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-top: 2px;
+}
+
+/* ── Timeline ── */
+.timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-row {
+  display: grid;
+  grid-template-columns: 72px 28px 1fr;
+  align-items: flex-start;
+}
+
+.time-col {
+  padding-top: 16px;
+  text-align: right;
+  padding-right: 6px;
+}
+.time-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #7a6650;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+
+.connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 20px;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #c9a84c;
+  border: 2px solid #8b7340;
+  flex-shrink: 0;
+}
+.line {
+  width: 2px;
+  background: #f0e6cc;
+  flex: 1;
+  min-height: 20px;
+  margin-top: 4px;
+}
+
+.activity-card {
+  background: #fff;
+  border: 1px solid #f0e6cc;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 6px 0 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.activity-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #8b7340;
+  text-decoration: none;
+  line-height: 1.3;
+}
+.activity-name:hover {
+  color: #c9a84c;
+  text-decoration: underline;
+}
+.pin-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  opacity: 0.65;
+}
+
+.activity-notes {
+  margin: 5px 0 0;
+  font-size: 13px;
+  color: #7a6650;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+/* ── States ── */
+.state-msg {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 0;
+  color: #7a6650;
+  font-size: 15px;
+}
+.state-msg.error { color: #b94040; }
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #f0e6cc;
+  border-top-color: #8b7340;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty-day {
+  padding: 40px 0;
+  color: #7a6650;
+  font-style: italic;
+}
+
+@media (max-width: 480px) {
+  .trip-title { font-size: 38px; }
+  .timeline-row { grid-template-columns: 60px 24px 1fr; }
+  .time-label { font-size: 10px; }
+}
+</style>
