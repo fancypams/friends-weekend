@@ -1,10 +1,10 @@
+<script setup>
+import HeroHeader from '../components/HeroHeader.vue'
+</script>
+
 <template>
   <div class="home">
-    <div class="hero">
-      <p class="eyebrow">Friends Weekend</p>
-      <h1 class="city">Seattle</h1>
-      <p class="dates">July 31 – August 4, 2025</p>
-    </div>
+    <HeroHeader />
 
     <nav class="menu">
       <router-link to="/basics" class="menu-card">
@@ -45,39 +45,10 @@
 <style scoped>
 .home {
   min-height: 100vh;
-  background: #fffbf2;
+  background: #fff9f2;
   font-family: system-ui, 'Segoe UI', sans-serif;
   display: flex;
   flex-direction: column;
-}
-
-/* ── Hero ── */
-.hero {
-  background: #8b7340;
-  color: #fff;
-  text-align: center;
-  padding: 72px 24px 80px;
-  flex-shrink: 0;
-}
-.eyebrow {
-  font-size: 13px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  opacity: 0.75;
-  margin: 0 0 12px;
-}
-.city {
-  font-family: 'Caveat', cursive;
-  font-size: 80px;
-  font-weight: 700;
-  line-height: 1;
-  margin: 0 0 12px;
-  letter-spacing: 1px;
-}
-.dates {
-  font-size: 17px;
-  opacity: 0.85;
-  margin: 0;
 }
 
 /* ── Menu ── */
@@ -85,7 +56,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 40px 24px;
+  padding: 70px 24px 40px;
   max-width: 560px;
   width: 100%;
   margin: 0 auto;
@@ -98,29 +69,29 @@
   gap: 20px;
   padding: 24px 20px;
   background: #fff;
-  border: 1px solid #f0e6cc;
+  border: 1px solid #C8D8D0;
   border-radius: 14px;
   text-decoration: none;
-  color: #3d2b1f;
+  color: #1A3329;
   box-shadow: 0 2px 10px rgba(0,0,0,0.06);
   transition: box-shadow 0.2s, border-color 0.2s, transform 0.15s;
 }
 .menu-card:hover {
-  border-color: #c9a84c;
-  box-shadow: 0 6px 20px rgba(139,115,64,0.15);
+  border-color: #C94030;
+  box-shadow: 0 6px 20px rgba(46,99,82,0.15);
   transform: translateY(-2px);
 }
 
 .menu-card-icon {
   width: 48px;
   height: 48px;
-  background: #f5edd6;
+  background: #E0EDEA;
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #8b7340;
+  color: #2E6352;
 }
 .menu-card-icon svg {
   width: 26px;
@@ -136,17 +107,17 @@
 .menu-card-title {
   font-size: 18px;
   font-weight: 600;
-  color: #3d2b1f;
+  color: #1A3329;
 }
 .menu-card-sub {
   font-size: 13px;
-  color: #7a6650;
+  color: #4E6B5F;
 }
 
 .menu-card-arrow {
   width: 20px;
   height: 20px;
-  color: #c9a84c;
+  color: #C94030;
   flex-shrink: 0;
 }
 </style>

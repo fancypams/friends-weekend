@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import DayMap from './DayMap.vue'
+import HeroHeader from './HeroHeader.vue'
 
 const SHEET_ID = '10Vb7iKPjZC2THOPiMf50MtKMM5K3LQ70VTVdBCuSdlo'
 const SHEET_NAME = 'Itinerary'
@@ -88,19 +89,7 @@ onMounted(async () => {
 
 <template>
   <div class="itinerary-page">
-    <header class="trip-header">
-      <router-link to="/" class="back-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-        </svg>
-        Home
-      </router-link>
-      <div class="header-inner">
-        <p class="trip-label">Friends Weekend</p>
-        <h1 class="trip-title">Seattle</h1>
-        <p class="trip-dates">July 31 – August 4, 2025</p>
-      </div>
-    </header>
+    <HeroHeader show-back />
 
     <main class="itinerary-body">
       <div v-if="loading" class="state-msg">
@@ -168,65 +157,16 @@ onMounted(async () => {
 <style scoped>
 .itinerary-page {
   min-height: 100vh;
-  background: #fffbf2;
+  background: #fff9f2;
   font-family: system-ui, 'Segoe UI', sans-serif;
-  color: #3d2b1f;
-}
-
-/* ── Header ── */
-.trip-header {
-  background: #8b7340;
-  color: #fff;
-  padding: 20px 28px 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.back-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: rgba(255,255,255,0.8);
-  text-decoration: none;
-  font-size: 14px;
-  transition: color 0.15s;
-  width: fit-content;
-}
-.back-btn:hover { color: #fff; }
-.back-btn svg { width: 16px; height: 16px; }
-.header-inner {
-  max-width: 680px;
-  margin: 0 auto;
-  text-align: center;
-  padding: 16px 0 28px;
-  width: 100%;
-}
-
-.trip-label {
-  font-size: 13px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  opacity: 0.8;
-  margin: 0 0 6px;
-}
-.trip-title {
-  font-size: 52px;
-  font-weight: 300;
-  letter-spacing: -1px;
-  margin: 0 0 8px;
-  line-height: 1;
-}
-.trip-dates {
-  font-size: 16px;
-  opacity: 0.85;
-  margin: 0;
+  color: #1A3329;
 }
 
 /* ── Body ── */
 .itinerary-body {
   max-width: 680px;
   margin: 0 auto;
-  padding: 0 20px 60px;
+  padding: 70px 20px 60px;
 }
 
 /* ── Day Nav ── */
@@ -245,17 +185,17 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   padding: 10px 14px;
-  border: 2px solid #f0e6cc;
+  border: 2px solid #C8D8D0;
   border-radius: 10px;
   background: #fff;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
   min-width: 86px;
 }
-.day-btn:hover { border-color: #c9a84c; }
+.day-btn:hover { border-color: #C94030; }
 .day-btn.active {
-  border-color: #8b7340;
-  background: #8b7340;
+  border-color: #2E6352;
+  background: #2E6352;
   color: #fff;
 }
 .day-label {
@@ -288,7 +228,7 @@ onMounted(async () => {
 .time-label {
   font-size: 11px;
   font-weight: 600;
-  color: #7a6650;
+  color: #4E6B5F;
   white-space: nowrap;
   letter-spacing: 0.2px;
 }
@@ -303,13 +243,13 @@ onMounted(async () => {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #c9a84c;
-  border: 2px solid #8b7340;
+  background: #C94030;
+  border: 2px solid #2E6352;
   flex-shrink: 0;
 }
 .line {
   width: 2px;
-  background: #f0e6cc;
+  background: #C8D8D0;
   flex: 1;
   min-height: 20px;
   margin-top: 4px;
@@ -317,7 +257,7 @@ onMounted(async () => {
 
 .activity-card {
   background: #fff;
-  border: 1px solid #f0e6cc;
+  border: 1px solid #C8D8D0;
   border-radius: 10px;
   padding: 12px 16px;
   margin: 6px 0 14px;
@@ -330,12 +270,12 @@ onMounted(async () => {
   gap: 5px;
   font-size: 15px;
   font-weight: 600;
-  color: #8b7340;
+  color: #2E6352;
   text-decoration: none;
   line-height: 1.3;
 }
 .activity-name:hover {
-  color: #c9a84c;
+  color: #C94030;
   text-decoration: underline;
 }
 .pin-icon {
@@ -348,7 +288,7 @@ onMounted(async () => {
 .activity-notes {
   margin: 5px 0 0;
   font-size: 13px;
-  color: #7a6650;
+  color: #4E6B5F;
   line-height: 1.5;
   white-space: pre-line;
 }
@@ -359,7 +299,7 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 48px 0;
-  color: #7a6650;
+  color: #4E6B5F;
   font-size: 15px;
 }
 .state-msg.error { color: #b94040; }
@@ -367,8 +307,8 @@ onMounted(async () => {
 .spinner {
   width: 18px;
   height: 18px;
-  border: 2px solid #f0e6cc;
-  border-top-color: #8b7340;
+  border: 2px solid #C8D8D0;
+  border-top-color: #2E6352;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
@@ -377,12 +317,11 @@ onMounted(async () => {
 
 .empty-day {
   padding: 40px 0;
-  color: #7a6650;
+  color: #4E6B5F;
   font-style: italic;
 }
 
 @media (max-width: 480px) {
-  .trip-title { font-size: 38px; }
   .timeline-row { grid-template-columns: 60px 24px 1fr; }
   .time-label { font-size: 10px; }
 }
