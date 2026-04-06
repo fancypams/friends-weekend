@@ -1,5 +1,58 @@
-# Vue 3 + Vite
+# Vue 3 + Vite App
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+A Vue 3 + Vite single-page application with routing and interactive map-based views.
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+## Tech Stack
+- Vue 3
+- Vue Router (hash history)
+- Vite
+- Leaflet
+
+## Prerequisites
+- Node `22.12.0` (managed via `.nvmrc`)
+- npm
+
+## Run Locally
+
+```bash
+cd <your-project-directory>
+nvm use
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173/`.
+
+## Build And Preview
+
+```bash
+npm run build
+npm run preview
+```
+
+## Routes
+- `#/` home page
+- `#/basics` basics/info page
+- `#/itinerary` itinerary page
+
+## Project Structure
+- `src/pages/` page-level views
+- `src/components/` reusable UI and itinerary/map components
+- `src/router/index.js` route definitions
+- `public/` static assets
+
+## Development Conventions
+See [`AGENTS.md`](./AGENTS.md) for:
+- coding and workflow rules
+- commit and PR title conventions
+- quality gates and definition of done
+
+## Troubleshooting
+- If `npm run dev` fails with a Vite/Node version error, run:
+
+```bash
+nvm use
+node -v
+```
+
+Expected Node version is `v22.12.0`.
