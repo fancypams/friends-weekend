@@ -45,7 +45,7 @@ import HeroHeader from '../components/HeroHeader.vue'
 <style scoped>
 .home {
   min-height: 100vh;
-  background: #fff9f2;
+  background: var(--bg-page);
   font-family: system-ui, 'Segoe UI', sans-serif;
   display: flex;
   flex-direction: column;
@@ -68,16 +68,16 @@ import HeroHeader from '../components/HeroHeader.vue'
   align-items: center;
   gap: 20px;
   padding: 24px 20px;
-  background: #fff;
-  border: 1px solid #C8D8D0;
+  background: var(--bg-white);
+  border: 1px solid var(--green-border);
   border-radius: 14px;
   text-decoration: none;
-  color: #1A3329;
+  color: var(--green-darkest);
   box-shadow: 0 2px 10px rgba(0,0,0,0.06);
   transition: box-shadow 0.2s, border-color 0.2s, transform 0.15s;
 }
 .menu-card:hover {
-  border-color: #C94030;
+  border-color: var(--red-accent);
   box-shadow: 0 6px 20px rgba(46,99,82,0.15);
   transform: translateY(-2px);
 }
@@ -85,13 +85,13 @@ import HeroHeader from '../components/HeroHeader.vue'
 .menu-card-icon {
   width: 48px;
   height: 48px;
-  background: #E0EDEA;
+  background: var(--green-light);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #2E6352;
+  color: var(--green-primary);
 }
 .menu-card-icon svg {
   width: 26px;
@@ -107,17 +107,17 @@ import HeroHeader from '../components/HeroHeader.vue'
 .menu-card-title {
   font-size: 18px;
   font-weight: 600;
-  color: #1A3329;
+  color: var(--green-darkest);
 }
 .menu-card-sub {
   font-size: 13px;
-  color: #4E6B5F;
+  color: var(--green-muted);
 }
 
 .menu-card-arrow {
   width: 20px;
   height: 20px;
-  color: #C94030;
+  color: var(--red-accent);
   flex-shrink: 0;
 }
 </style>

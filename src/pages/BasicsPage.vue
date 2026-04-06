@@ -205,15 +205,15 @@ onMounted(async () => {
 <style scoped>
 .basics-page {
   min-height: 100vh;
-  background: #fff9f2;
+  background: var(--bg-page);
   font-family: system-ui, 'Segoe UI', sans-serif;
-  color: #1A3329;
+  color: var(--green-darkest);
 }
 
 /* ── Header ── */
 .page-header {
-  background: #2E6352;
-  color: #fff;
+  background: var(--green-primary);
+  color: var(--bg-white);
   padding: 20px 28px 28px;
   display: flex;
   flex-direction: column;
@@ -229,7 +229,7 @@ onMounted(async () => {
   transition: color 0.15s;
   width: fit-content;
 }
-.back-btn:hover { color: #fff; }
+.back-btn:hover { color: var(--bg-white); }
 .back-btn svg { width: 16px; height: 16px; }
 
 .page-title {
@@ -238,7 +238,7 @@ onMounted(async () => {
   font-weight: 700;
   margin: 0;
   line-height: 1;
-  color: #fff;
+  color: var(--bg-white);
 }
 
 /* ── Body ── */
@@ -255,7 +255,7 @@ onMounted(async () => {
   font-family: 'Caveat', cursive;
   font-size: 36px;
   font-weight: 700;
-  color: #1A3329;
+  color: var(--green-darkest);
   margin: 0 0 20px;
 }
 
@@ -263,8 +263,8 @@ onMounted(async () => {
 .property-card {
   display: flex;
   align-items: stretch;
-  background: #fff;
-  border: 1px solid #C8D8D0;
+  background: var(--bg-white);
+  border: 1px solid var(--green-border);
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
@@ -287,17 +287,17 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   min-height: 220px;
-  background: linear-gradient(135deg, #7AA898 0%, #A8B89A 60%, #C8D8D0 100%);
+  background: linear-gradient(135deg, #7AA898 0%, #A8B89A 60%, var(--green-border) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #4E6B5F;
+  color: var(--green-muted);
 }
 .photo-placeholder svg { width: 52px; height: 52px; }
 
 .property-divider {
   width: 3px;
-  background: #C94030;
+  background: var(--red-accent);
   flex-shrink: 0;
 }
 
@@ -313,7 +313,7 @@ onMounted(async () => {
   font-family: 'Caveat', cursive;
   font-size: 32px;
   font-weight: 700;
-  color: #1A3329;
+  color: var(--green-darkest);
   margin: 0 0 4px;
   line-height: 1.1;
 }
@@ -323,12 +323,12 @@ onMounted(async () => {
   align-items: flex-start;
   gap: 10px;
   font-size: 15px;
-  color: #1A3329;
+  color: var(--green-darkest);
   line-height: 1.5;
   text-decoration: none;
 }
-.detail-row.link { color: #2E6352; transition: color 0.15s; }
-.detail-row.link:hover { color: #C94030; text-decoration: underline; }
+.detail-row.link { color: var(--green-primary); transition: color 0.15s; }
+.detail-row.link:hover { color: var(--red-accent); text-decoration: underline; }
 
 .detail-icon { font-size: 17px; flex-shrink: 0; margin-top: 1px; }
 
@@ -340,8 +340,8 @@ onMounted(async () => {
 
 /* ── Transport Card ── */
 .transport-card {
-  background: #fff;
-  border: 1px solid #C8D8D0;
+  background: var(--bg-white);
+  border: 1px solid var(--green-border);
   border-radius: 16px;
   padding: 28px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
@@ -352,7 +352,7 @@ onMounted(async () => {
 
 .vehicles {
   margin-top: 8px;
-  border-top: 1px solid #C8D8D0;
+  border-top: 1px solid var(--green-border);
   padding-top: 16px;
   display: flex;
   flex-direction: column;
@@ -367,8 +367,8 @@ onMounted(async () => {
 .vehicle-name { flex: 1; font-size: 15px; font-weight: 500; }
 .vehicle-cap {
   font-size: 13px;
-  color: #4E6B5F;
-  background: #E0EDEA;
+  color: var(--green-muted);
+  background: var(--green-light);
   border-radius: 20px;
   padding: 2px 10px;
 }
@@ -379,16 +379,16 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 48px 0;
-  color: #4E6B5F;
+  color: var(--green-muted);
   font-size: 15px;
 }
-.state-msg.error { color: #b94040; }
+.state-msg.error { color: var(--red-error); }
 
 .spinner {
   width: 18px;
   height: 18px;
-  border: 2px solid #C8D8D0;
-  border-top-color: #2E6352;
+  border: 2px solid var(--green-border);
+  border-top-color: var(--green-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;

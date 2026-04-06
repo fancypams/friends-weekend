@@ -96,8 +96,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .hero-header {
-  background: #2E6352;
-  color: #fff;
+  background: var(--green-primary);
+  color: var(--bg-white);
   padding: 14px 24px 0;
   display: flex;
   flex-direction: column;
@@ -131,7 +131,7 @@ onBeforeUnmount(() => {
   width: fit-content;
   margin-bottom: 8px;
 }
-.back-btn:hover { color: #fff; }
+.back-btn:hover { color: var(--bg-white); }
 .back-btn svg { width: 16px; height: 16px; }
 
 .hero-inner {
@@ -171,8 +171,8 @@ onBeforeUnmount(() => {
   letter-spacing: 2.6px;
   padding: 0;
   border: 0;
-  color: #A7B799;
-}
+  color: var(--green-sage);
+  }
 .market-badge {
   display: inline-flex;
   align-items: center;
@@ -180,8 +180,8 @@ onBeforeUnmount(() => {
   gap: 8px;
   margin: 0 0 12px;
   border-radius: 999px;
-  background: #f2f2f2;
-  color: #C81F45;
+  background: var(--bg-cream);
+  color: var(--red-accent);
   padding: 7px 13px;
   font-family: system-ui, 'Segoe UI', sans-serif;
   font-size: 9px;
