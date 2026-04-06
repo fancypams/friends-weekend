@@ -135,7 +135,7 @@ watch(() => props.activities, updateMarkers)
   position: relative;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid #f0e6cc;
+  border: 1px solid var(--warm-tan);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
   margin-bottom: 32px;
 }
@@ -143,7 +143,7 @@ watch(() => props.activities, updateMarkers)
 .map-container {
   height: 320px;
   width: 100%;
-  background: #f5f0e8;
+  background: var(--bg-cream);
 }
 
 .map-loading {
@@ -155,11 +155,11 @@ watch(() => props.activities, updateMarkers)
   align-items: center;
   gap: 8px;
   background: rgba(255, 255, 255, 0.92);
-  border: 1px solid #f0e6cc;
+  border: 1px solid var(--warm-tan);
   border-radius: 20px;
   padding: 6px 14px;
   font-size: 13px;
-  color: #7a6650;
+  color: var(--warm-brown-muted);
   white-space: nowrap;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
@@ -167,8 +167,8 @@ watch(() => props.activities, updateMarkers)
 .spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid #f0e6cc;
-  border-top-color: #8b7340;
+  border: 2px solid var(--warm-tan);
+  border-top-color: var(--warm-brown);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
@@ -186,7 +186,7 @@ watch(() => props.activities, updateMarkers)
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #8b7340;
+  background: var(--warm-brown);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
@@ -202,7 +202,7 @@ watch(() => props.activities, updateMarkers)
   border-radius: 8px;
   font-family: system-ui, sans-serif;
   font-size: 13px;
-  color: #3d2b1f;
+  color: var(--warm-text-dark);
 }
 
 .leaflet-popup-tip-container {

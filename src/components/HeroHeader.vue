@@ -42,8 +42,8 @@ defineProps({
 
 <style scoped>
 .hero-header {
-  background: #2E6352;
-  color: #fff;
+  background: var(--green-primary);
+  color: var(--bg-white);
   padding: 24px 24px 0;
   display: flex;
   flex-direction: column;
@@ -77,7 +77,7 @@ defineProps({
   width: fit-content;
   margin-bottom: 8px;
 }
-.back-btn:hover { color: #fff; }
+.back-btn:hover { color: var(--bg-white); }
 .back-btn svg { width: 16px; height: 16px; }
 
 .hero-inner {
@@ -116,18 +116,18 @@ defineProps({
   text-transform: uppercase;
   letter-spacing: 3px;
   padding: 8px;
-  border: solid 1px #A7B799;
-  color: #A7B799;
+  border: solid 1px var(--green-sage);
+  color: var(--green-sage);
 }
 .market-badge {
   position: relative;
   overflow: visible;
   display: inline-block;
   margin: 25px 0 10px;
-  border: 4px solid #1E4237;
+  border: 4px solid var(--green-forest);
   border-radius: 6px;
-  background: #F5F0E8;
-  color: #C94030;
+  background: var(--bg-cream);
+  color: var(--red-accent);
   padding: 15px 100px 15px 15px;
   font-family: system-ui, 'Segoe UI', sans-serif;
   font-size: 14px;

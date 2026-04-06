@@ -1,3 +1,29 @@
+:root {
+  /* ── Greens ── */
+  --green-darkest:  #1A3329;
+  --green-forest:   #1E4237;
+  --green-primary:  #2E6352;
+  --green-muted:    #4E6B5F;
+  --green-border:   #C8D8D0;
+  --green-light:    #E0EDEA;
+  --green-sage:     #A7B799;
+
+  /* ── Accent ── */
+  --red-accent:     #C94030;
+  --red-error:      #b94040;
+
+  /* ── Backgrounds ── */
+  --bg-page:        #fff9f2;
+  --bg-cream:       #F5F0E8;
+  --bg-white:       #ffffff;
+
+  /* ── Warm / map tones ── */
+  --warm-tan:          #f0e6cc;
+  --warm-brown:        #8b7340;
+  --warm-brown-muted:  #7a6650;
+  --warm-text-dark:    #3d2b1f;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }

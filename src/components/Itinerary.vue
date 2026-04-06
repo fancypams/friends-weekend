@@ -157,9 +157,9 @@ onMounted(async () => {
 <style scoped>
 .itinerary-page {
   min-height: 100vh;
-  background: #fff9f2;
+  background: var(--bg-page);
   font-family: system-ui, 'Segoe UI', sans-serif;
-  color: #1A3329;
+  color: var(--green-darkest);
 }
 
 /* ── Body ── */
@@ -185,18 +185,18 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   padding: 10px 14px;
-  border: 2px solid #C8D8D0;
+  border: 2px solid var(--green-border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--bg-white);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
   min-width: 86px;
 }
-.day-btn:hover { border-color: #C94030; }
+.day-btn:hover { border-color: var(--red-accent); }
 .day-btn.active {
-  border-color: #2E6352;
-  background: #2E6352;
-  color: #fff;
+  border-color: var(--green-primary);
+  background: var(--green-primary);
+  color: var(--bg-white);
 }
 .day-label {
   font-size: 13px;
@@ -228,7 +228,7 @@ onMounted(async () => {
 .time-label {
   font-size: 11px;
   font-weight: 600;
-  color: #4E6B5F;
+  color: var(--green-muted);
   white-space: nowrap;
   letter-spacing: 0.2px;
 }
@@ -243,21 +243,21 @@ onMounted(async () => {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #C94030;
-  border: 2px solid #2E6352;
+  background: var(--red-accent);
+  border: 2px solid var(--green-primary);
   flex-shrink: 0;
 }
 .line {
   width: 2px;
-  background: #C8D8D0;
+  background: var(--green-border);
   flex: 1;
   min-height: 20px;
   margin-top: 4px;
 }
 
 .activity-card {
-  background: #fff;
-  border: 1px solid #C8D8D0;
+  background: var(--bg-white);
+  border: 1px solid var(--green-border);
   border-radius: 10px;
   padding: 12px 16px;
   margin: 6px 0 14px;
@@ -270,12 +270,12 @@ onMounted(async () => {
   gap: 5px;
   font-size: 15px;
   font-weight: 600;
-  color: #2E6352;
+  color: var(--green-primary);
   text-decoration: none;
   line-height: 1.3;
 }
 .activity-name:hover {
-  color: #C94030;
+  color: var(--red-accent);
   text-decoration: underline;
 }
 .pin-icon {
@@ -288,7 +288,7 @@ onMounted(async () => {
 .activity-notes {
   margin: 5px 0 0;
   font-size: 13px;
-  color: #4E6B5F;
+  color: var(--green-muted);
   line-height: 1.5;
   white-space: pre-line;
 }
@@ -299,16 +299,16 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 48px 0;
-  color: #4E6B5F;
+  color: var(--green-muted);
   font-size: 15px;
 }
-.state-msg.error { color: #b94040; }
+.state-msg.error { color: var(--red-error); }
 
 .spinner {
   width: 18px;
   height: 18px;
-  border: 2px solid #C8D8D0;
-  border-top-color: #2E6352;
+  border: 2px solid var(--green-border);
+  border-top-color: var(--green-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
@@ -317,7 +317,7 @@ onMounted(async () => {
 
 .empty-day {
   padding: 40px 0;
-  color: #4E6B5F;
+  color: var(--green-muted);
   font-style: italic;
 }
 
