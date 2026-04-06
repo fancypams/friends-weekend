@@ -62,18 +62,35 @@ onBeforeUnmount(() => {
       Home
     </router-link>
     <div class="hero-inner">
-      <p class="eyebrow">never sleepless in</p>
-      <h1 class="city">Seattle</h1>
-      <p class="dates">July 23 - August 2, 2026</p>
-      <div class="market-badge">
-        Friends Weekend
-        <div class="clock-wrap">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <circle cx="12" cy="12" r="9"></circle>
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5v5l3.5 2"></path>
-          </svg>
-        </div>
-      </div>
+      <svg class="hero-sign" viewBox="-15 0 680 375" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Friends Weekend Seattle">
+        <!-- Outer border frame -->
+        <rect x="90" y="30" width="500" height="290" rx="4" fill="none" stroke="#aaaaaa" stroke-width="5"/>
+
+        <!-- Grid lines -->
+        <line x1="90"  y1="175" x2="590" y2="175" stroke="#aaaaaa" stroke-width="3"/>
+        <line x1="223" y1="30"  x2="223" y2="320" stroke="#aaaaaa" stroke-width="3"/>
+        <line x1="356" y1="30"  x2="356" y2="320" stroke="#aaaaaa" stroke-width="3"/>
+        <line x1="489" y1="30"  x2="489" y2="320" stroke="#aaaaaa" stroke-width="3"/>
+
+        <!-- Main text -->
+        <text x="285" y="150" text-anchor="middle" font-size="90" style="font-family:'Montserrat','Impact',sans-serif;fill:var(--red-accent);letter-spacing:3px;">FRIENDS</text>
+        <text x="260" y="270" text-anchor="middle" font-size="90" style="font-family:'Montserrat','Impact',sans-serif;fill:var(--red-accent);letter-spacing:3px;">WEEKEND</text>
+
+        <!-- Clock face -->
+        <circle cx="576" cy="175" r="68" fill="white" stroke="#aaaaaa" stroke-width="2"/>
+        <circle cx="576" cy="175" r="60" fill="none" stroke="#cccccc" stroke-width="1"/>
+
+        <!-- Tick marks -->
+        <line x1="576" y1="117" x2="576" y2="125" stroke="#777" stroke-width="1.5"/>
+        <line x1="634" y1="175" x2="626" y2="175" stroke="#777" stroke-width="1.5"/>
+        <line x1="576" y1="233" x2="576" y2="225" stroke="#777" stroke-width="1.5"/>
+        <line x1="518" y1="175" x2="526" y2="175" stroke="#777" stroke-width="1.5"/>
+
+        <!-- Clock hands -->
+        <line x1="576" y1="175" x2="576" y2="127" stroke="#444" stroke-width="2"   stroke-linecap="round"/>
+        <line x1="576" y1="175" x2="544" y2="147" stroke="#444" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="576" cy="175" r="3" fill="#444"/>
+      </svg>
 
       <div class="countdown-badge" aria-live="polite">
         <MarinersCompass class="compass" aria-hidden="true" />
@@ -85,11 +102,6 @@ onBeforeUnmount(() => {
           <span v-if="index < countdownUnits.length - 1" class="dot" aria-hidden="true"></span>
         </template>
       </div>
-    </div>
-    <div class="scallop">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 50" preserveAspectRatio="none">
-        <path d="M0,0 L1200,0 L1200,30 Q1170,50 1140,30 Q1110,50 1080,30 Q1050,50 1020,30 Q990,50 960,30 Q930,50 900,30 Q870,50 840,30 Q810,50 780,30 Q750,50 720,30 Q690,50 660,30 Q630,50 600,30 Q570,50 540,30 Q510,50 480,30 Q450,50 420,30 Q390,50 360,30 Q330,50 300,30 Q270,50 240,30 Q210,50 180,30 Q150,50 120,30 Q90,50 60,30 Q30,50 0,30 Z" fill="#1E4237" />
-      </svg>
     </div>
   </header>
 </template>
@@ -103,20 +115,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   position: relative;
   overflow: visible;
-}
-
-.scallop {
-  position: absolute;
-  bottom: -50px;
-  left: 0;
-  width: 100%;
-  line-height: 0;
-  z-index: 1;
-}
-.scallop svg {
-  width: 100%;
-  display: block;
-  height: 50px;
 }
 
 .back-btn {
@@ -139,71 +137,14 @@ onBeforeUnmount(() => {
   padding: 4px 0 0;
   margin-bottom: 14px;
   display: flex;
-  flex-flow:column;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
 }
 
-.eyebrow {
-  font-family: system-ui, 'Segoe UI', sans-serif;
-  font-size: 9px;
-  letter-spacing: 6px;
-  text-transform: uppercase;
-  opacity: 0.7;
-  font-weight: 700;
-  margin: 0 0 8px;
-}
-.city {
-  font-family: 'Playfair Display', serif;
-  font-size: clamp(46px, 7vw, 72px);
-  font-weight: 600;
-  line-height: 1;
-  margin: 0 0 10px;
-  letter-spacing: 0.5px;
-  font-style: italic;
-}
-.dates {
-  font-family: system-ui, 'Segoe UI', sans-serif;
-  font-size: 10px;
-  opacity: 0.75;
-  margin: 0 0 12px;
-  text-transform: uppercase;
-  letter-spacing: 2.6px;
-  padding: 0;
-  border: 0;
-  color: var(--green-sage);
-  }
-.market-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  border-radius: 999px;
-  background: var(--bg-cream);
-  color: var(--red-accent);
-  padding: 7px 13px;
-  font-family: system-ui, 'Segoe UI', sans-serif;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  min-width: 206px;
-}
-
-.clock-wrap {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-radius: 999px;
-  color: #2E6352;
-}
-.clock-wrap svg {
-  width: 20px;
-  height: 20px;
+.hero-sign {
+  width: 100%;
+  max-width: 560px;
+  display: block;
 }
 
 .countdown-badge {
@@ -216,6 +157,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 8px;
   box-shadow: none;
+  margin-bottom: 30px;
 }
 
 .compass {
@@ -265,20 +207,6 @@ onBeforeUnmount(() => {
 @media (max-width: 680px) {
   .hero-header {
     padding-top: 12px;
-  }
-
-  .city {
-    font-size: clamp(40px, 12vw, 58px);
-  }
-
-  .dates {
-    letter-spacing: 2px;
-    font-size: 9px;
-  }
-
-  .market-badge {
-    min-width: 0;
-    width: fit-content;
   }
 
   .countdown-badge {
