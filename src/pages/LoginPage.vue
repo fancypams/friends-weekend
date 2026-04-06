@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { hasSupabaseConfig, supabase } from '../lib/supabaseClient'
 import {
@@ -18,6 +18,48 @@ const loading = ref(false)
 const infoMsg = ref('')
 const errorMsg = ref('')
 const checkingSession = ref(true)
+const cooldownUntil = ref(0)
+
+const COOLDOWN_SECONDS = 60
+const RATE_LIMIT_COOLDOWN_SECONDS = 180
+const COOLDOWN_KEY = 'magic-link-cooldown-until'
+
+let cooldownTimer = null
+
+const cooldownSeconds = computed(() => {
+  const ms = cooldownUntil.value - Date.now()
+  return ms > 0 ? Math.ceil(ms / 1000) : 0
+})
+
+const canSend = computed(() => !loading.value && cooldownSeconds.value === 0)
+
+function startCooldown(seconds) {
+  const until = Date.now() + seconds * 1000
+  cooldownUntil.value = until
+  localStorage.setItem(COOLDOWN_KEY, String(until))
+}
+
+function syncCooldownFromStorage() {
+  const stored = Number(localStorage.getItem(COOLDOWN_KEY) || 0)
+  cooldownUntil.value = Number.isFinite(stored) ? stored : 0
+}
+
+function startCooldownTicker() {
+  if (cooldownTimer) return
+  cooldownTimer = window.setInterval(() => {
+    if (cooldownUntil.value <= Date.now()) {
+      cooldownUntil.value = 0
+      localStorage.removeItem(COOLDOWN_KEY)
+    }
+  }, 500)
+}
+
+function stopCooldownTicker() {
+  if (cooldownTimer) {
+    window.clearInterval(cooldownTimer)
+    cooldownTimer = null
+  }
+}
 
 function normalizeRedirect(value) {
   const candidate = String(value || '').trim()
@@ -60,6 +102,8 @@ async function checkSessionAndRedirect() {
 }
 
 async function submitMagicLink() {
+  if (!canSend.value) return
+
   loading.value = true
   errorMsg.value = ''
   infoMsg.value = ''
@@ -70,15 +114,25 @@ async function submitMagicLink() {
   try {
     const redirectTo = `${window.location.origin}/#/login`
     await sendMagicLink(email.value, redirectTo)
+    startCooldown(COOLDOWN_SECONDS)
     infoMsg.value = `Magic link sent to ${email.value.trim().toLowerCase()}. Open it on this device.`
   } catch (err) {
-    errorMsg.value = err?.message || 'Failed to send magic link'
+    const message = err?.message || 'Failed to send magic link'
+    if (message.toLowerCase().includes('rate limit')) {
+      startCooldown(RATE_LIMIT_COOLDOWN_SECONDS)
+      errorMsg.value = `Too many email requests. Wait ${RATE_LIMIT_COOLDOWN_SECONDS} seconds and try again.`
+    } else {
+      errorMsg.value = message
+    }
   } finally {
     loading.value = false
   }
 }
 
 onMounted(async () => {
+  syncCooldownFromStorage()
+  startCooldownTicker()
+
   if (supabase) {
     supabase.auth.onAuthStateChange(async (_event, _session) => {
       await checkSessionAndRedirect()
@@ -86,6 +140,10 @@ onMounted(async () => {
   }
 
   await checkSessionAndRedirect()
+})
+
+onUnmounted(() => {
+  stopCooldownTicker()
 })
 </script>
 
@@ -115,8 +173,8 @@ onMounted(async () => {
               placeholder="you@example.com"
               required
             />
-            <button class="primary-btn" type="submit" :disabled="loading">
-              {{ loading ? 'Sending…' : 'Send Magic Link' }}
+            <button class="primary-btn" type="submit" :disabled="!canSend">
+              {{ loading ? 'Sending…' : (cooldownSeconds > 0 ? `Wait ${cooldownSeconds}s` : 'Send Magic Link') }}
             </button>
           </form>
 
