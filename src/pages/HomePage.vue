@@ -25,22 +25,13 @@ import HeroHeader from '../components/HeroHeader.vue'
         <span class="pennant-arrow">›</span>
       </router-link>
 
-      <router-link to="/photos" class="menu-card">
-        <div class="menu-card-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round"
-              d="M3.75 6.75A2.25 2.25 0 016 4.5h12a2.25 2.25 0 012.25 2.25v10.5A2.25 2.25 0 0118 19.5H6a2.25 2.25 0 01-2.25-2.25V6.75z" />
-            <path stroke-linecap="round" stroke-linejoin="round"
-              d="M8.25 10.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm-2.25 6l3.75-3.75a1.5 1.5 0 012.121 0l.879.879a1.5 1.5 0 002.121 0L18 10.5" />
-          </svg>
+            <router-link to="/photos" class="pennant-card" style="--card-bg: var(--green-primary)">
+        <span class="pennant-num">03</span>
+        <div class="pennant-text">
+          <span class="pennant-title">Photos</span>
+          <span class="pennant-sub">Shared private gallery</span>
         </div>
-        <div class="menu-card-text">
-          <span class="menu-card-title">Photos</span>
-          <span class="menu-card-sub">Shared private gallery</span>
-        </div>
-        <svg class="menu-card-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-        </svg>
+        <span class="pennant-arrow">›</span>
       </router-link>
     </nav>
   </div>
