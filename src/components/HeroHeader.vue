@@ -12,6 +12,8 @@ const targetMs = Date.parse('2026-07-23T00:00:00')
 const nowMs = ref(Date.now())
 let tickTimer = null
 
+const menuOpen = ref(false)
+
 const totalMsLeft = computed(() => Math.max(0, targetMs - nowMs.value))
 
 const countdown = computed(() => {
@@ -54,12 +56,18 @@ onBeforeUnmount(() => {
 
 <template>
   <header class="hero-header">
-    <router-link to="/" class="back-btn" :style="{ visibility: showBack ? 'visible' : 'hidden' }">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-      </svg>
-      Home
-    </router-link>
+    <!-- Hamburger button -->
+    <button class="hamburger" :class="{ open: menuOpen }" @click="menuOpen = !menuOpen" aria-label="Toggle menu">
+      <span /><span /><span />
+    </button>
+
+    <!-- Dropdown menu -->
+    <nav v-if="menuOpen" class="nav-dropdown">
+      <router-link to="/" class="nav-item" @click="menuOpen = false">Home</router-link>
+      <router-link to="/basics" class="nav-item" @click="menuOpen = false">Basics</router-link>
+      <router-link to="/itinerary" class="nav-item" @click="menuOpen = false">Itinerary</router-link>
+      <router-link to="/photos" class="nav-item" @click="menuOpen = false">Photos</router-link>
+    </nav>
 
     <!-- Clouds: behind text -->
     <img class="clouds-back" src="../assets/clouds-two.png" alt="" aria-hidden="true" />
@@ -67,7 +75,7 @@ onBeforeUnmount(() => {
     <!-- Main content -->
     <div class="hero-content">
       <p class="hero-label">Friends Weekend</p>
-      <h1 class="hero-city">SEATTLE</h1>
+      <router-link to="/" class="hero-city">SEATTLE</router-link>
       <div class="countdown-badge" aria-live="polite">
         <template v-for="(unit, index) in countdownUnits" :key="unit.key">
           <div class="count-item">
@@ -91,26 +99,66 @@ onBeforeUnmount(() => {
   min-height: fit-content;
   display: flex;
   flex-direction: column;
-  margin-bottom: -32px;
 }
 
-.back-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--sky-label);
-  text-decoration: none;
-  font-size: 13px;
-  font-family: var(--font-sans);
-  font-weight: 600;
-  transition: color 0.15s;
-  width: fit-content;
-  position: relative;
-  z-index: 4;
-  padding: 14px 20px 0;
+/* ── Hamburger ── */
+.hamburger {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  z-index: 10;
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px;
 }
-.back-btn:hover { color: var(--green-darkest); }
-.back-btn svg { width: 16px; height: 16px; }
+.hamburger span {
+  display: block;
+  width: 24px;
+  height: 2px;
+  background: var(--sky-label);
+  border-radius: 2px;
+  transition: opacity 0.2s, transform 0.2s;
+  transform-origin: center;
+}
+.hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.hamburger.open span:nth-child(2) { opacity: 0; }
+.hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* ── Dropdown ── */
+.nav-dropdown {
+  position: absolute;
+  top: 52px;
+  right: 16px;
+  z-index: 10;
+  background: var(--bg-white);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  overflow: hidden;
+  min-width: 160px;
+}
+.nav-item {
+  display: block;
+  padding: 14px 20px;
+  font-family: var(--font-sign);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--forest);
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.nav-item:hover {
+  background: var(--parchment);
+  color: var(--terracotta);
+}
+.nav-item.router-link-active {
+  color: var(--terracotta);
+}
 
 /* ── Cloud layers ── */
 .clouds-back {
@@ -142,7 +190,7 @@ onBeforeUnmount(() => {
   padding: 20px 105px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: start;
 }
 
 .hero-label {
@@ -164,6 +212,8 @@ onBeforeUnmount(() => {
   margin: 0 0 16px;
   line-height: 0.9;
   letter-spacing: -1px;
+  text-decoration: none;
+  display: block;
 }
 
 /* ── Countdown ── */
@@ -172,7 +222,7 @@ onBeforeUnmount(() => {
   align-items: baseline;
   gap: 6px;
   flex-wrap: wrap;
-  align-self:start;
+  align-self: start;
 }
 
 .count-item {
@@ -222,16 +272,14 @@ onBeforeUnmount(() => {
   }
 
   .hero-city {
-    font-size: clamp(52px, 18vw, 100px);
+    font-size: clamp(52px, 17vw, 100px);
   }
 
   .hero-label {
     margin: 0 0 10px;
-    align-self: center;
   }
 
   .countdown-badge {
-    align-self: center;
     margin: 0 0 -30px;
   }
 

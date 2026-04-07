@@ -205,16 +205,18 @@ onMounted(async () => {
 .basics-body {
   max-width: 760px;
   margin: 0 auto;
-  padding: 70px 24px 64px;
+  padding: 40px 24px 64px;
 }
 
 /* ── Section ── */
 .section { margin-bottom: 48px; }
 
 .section-title {
-  font-family: var(--font-display);
-  font-size: 36px;
+  font-family: var(--font-sign);
+  font-size: 22px;
   font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--green-darkest);
   margin: 0 0 20px;
 }
@@ -228,6 +230,7 @@ onMounted(async () => {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
   margin-bottom: 20px;
   min-height: 220px;
+  border-radius: 6px 0 0 6px;
 }
 
 .property-photo {
@@ -268,12 +271,12 @@ onMounted(async () => {
 }
 
 .property-name {
-  font-family: var(--font-display);
-  font-size: 32px;
+  font-family: var(--font-playfair);
+  font-size: 22px;
   font-weight: 700;
-  color: var(--green-darkest);
+  color: var(--driftwood);
   margin: 0 0 4px;
-  line-height: 1.1;
+  line-height: 1.2;
 }
 
 .detail-row {
@@ -291,9 +294,11 @@ onMounted(async () => {
 .detail-icon { font-size: 17px; flex-shrink: 0; margin-top: 1px; }
 
 .code {
+  font-family: var(--font-goldman);
   font-weight: 700;
   font-size: 18px;
-  letter-spacing: 2px;
+  letter-spacing: 3px;
+  color: var(--forest);
 }
 
 /* ── Transport Card ── */
@@ -304,6 +309,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  border-radius: 6px;
 }
 
 .vehicles {
@@ -320,7 +326,7 @@ onMounted(async () => {
   gap: 12px;
 }
 .vehicle-icon { font-size: 20px; width: 28px; text-align: center; }
-.vehicle-name { flex: 1; font-size: 15px; font-weight: 500; }
+.vehicle-name { flex: 1; font-family: var(--font-sign); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .vehicle-cap {
   font-size: 13px;
   color: var(--green-muted);

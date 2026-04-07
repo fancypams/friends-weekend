@@ -13,7 +13,7 @@ import HeroHeader from '../components/HeroHeader.vue'
           <span class="pennant-title">Basics</span>
           <span class="pennant-sub">Lodging &amp; Transportation</span>
         </div>
-        <span class="pennant-arrow">›</span>
+
       </router-link>
 
       <router-link to="/itinerary" class="pennant-card" style="--card-bg: var(--steel-sky)">
@@ -22,7 +22,7 @@ import HeroHeader from '../components/HeroHeader.vue'
           <span class="pennant-title">Itinerary</span>
           <span class="pennant-sub">Day-by-day schedule</span>
         </div>
-        <span class="pennant-arrow">›</span>
+
       </router-link>
 
             <router-link to="/photos" class="pennant-card" style="--card-bg: var(--green-primary)">
@@ -31,7 +31,7 @@ import HeroHeader from '../components/HeroHeader.vue'
           <span class="pennant-title">Photos</span>
           <span class="pennant-sub">Shared private gallery</span>
         </div>
-        <span class="pennant-arrow">›</span>
+
       </router-link>
     </nav>
   </div>
@@ -48,73 +48,79 @@ import HeroHeader from '../components/HeroHeader.vue'
 
 /* ── Menu ── */
 .menu {
-  display: flex;
-  flex-direction: column;
-  margin-top: 32px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  width: 100%;
+  max-width: 760px;
+  margin: 40px auto;
+  padding: 0 24px 64px;
 }
 
 .pennant-card {
   display: flex;
-  align-items: center;
-  padding: 0 90px;
-  height: 100px;
-  background: var(--card-bg);
+  flex-direction: column;
+  padding: 24px 20px 28px;
+  background: var(--bg-white);
+  border-radius: 0 0 6px 6px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
+  border-top: 4px solid var(--card-bg);
   text-decoration: none;
-  position: relative;
-  overflow: hidden;
-  transition: filter 0.15s;
+  transition: box-shadow 0.15s, transform 0.15s;
 }
 .pennant-card:hover {
-  filter: brightness(1.08);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  transform: translateY(-2px);
 }
 
 .pennant-num {
   font-family: var(--font-playfair);
-  font-size: 80px;
+  font-size: 32px;
   font-style: italic;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.18);
+  color: var(--driftwood);
   line-height: 1;
-  width: 90px;
-  flex-shrink: 0;
-  margin-right: 24px;
   user-select: none;
-  padding-bottom: 20px;
+  margin-bottom: 16px;
+  opacity: 0.7;
 }
 
 .pennant-text {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 
 .pennant-title {
   font-family: var(--font-sign);
-  font-size: 22px;
+  font-size: 16px;
   font-weight: 700;
-  color: #fff;
+  color: var(--forest);
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.08em;
 }
 
 .pennant-sub {
   font-family: var(--font-playfair);
-  font-size: 14px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.65);
-  letter-spacing: 2.5px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--driftwood);
 }
 
-.pennant-arrow {
-  font-size: 22px;
-  color: rgba(255, 255, 255, 0.45);
-  flex-shrink: 0;
-  font-family: var(--font-sans);
-}
-@media (max-width: 768px) {
+@media (max-width: 600px) {
+  .menu {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
   .pennant-card {
-    padding: 0 16px;
+    flex-direction: row;
+    align-items: center;
+    padding: 16px 20px;
+    gap: 16px;
+  }
+  .pennant-num {
+    margin-bottom: 0;
+    font-size: 28px;
   }
 }
 </style>

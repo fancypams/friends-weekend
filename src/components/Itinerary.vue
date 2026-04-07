@@ -101,51 +101,46 @@ onMounted(async () => {
       </div>
 
       <template v-else>
-        <nav class="day-nav">
-          <button
-            v-for="(day, i) in days"
-            :key="i"
-            :class="['day-btn', { active: activeDay === i }]"
-            @click="activeDay = i"
-          >
-            <span class="day-label">{{ day.label }}</span>
-            <span class="day-date">{{ day.date }}</span>
-          </button>
-        </nav>
+        <div class="itinerary-layout">
+          <nav class="day-nav">
+            <button
+              v-for="(day, i) in days"
+              :key="i"
+              :class="['day-btn', { active: activeDay === i }]"
+              @click="activeDay = i"
+            >
+              {{ day.label }}
+            </button>
+          </nav>
 
-<section class="timeline">
-          <div v-if="days[activeDay].activities.length === 0" class="empty-day">
-            No activities planned yet — check back soon!
-          </div>
+          <section class="timeline">
+            <div v-if="days[activeDay].activities.length === 0" class="empty-day">
+              No activities planned yet — check back soon!
+            </div>
 
-          <div
-            v-for="(item, i) in days[activeDay].activities"
-            :key="i"
-            class="timeline-row"
-          >
-            <div class="time-col">
-              <span class="time-label">{{ item.time }}</span>
+            <div
+              v-for="(item, i) in days[activeDay].activities"
+              :key="i"
+              class="timeline-row"
+            >
+              <div class="connector">
+                <div class="dot" />
+              </div>
+              <div class="activity-card">
+                <span class="time-label">{{ item.time }}</span>
+                <a
+                  :href="mapsUrl(item.activity)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="activity-name"
+                >
+                  {{ item.activity }}
+                </a>
+                <p v-if="item.notes" class="activity-notes">{{ item.notes }}</p>
+              </div>
             </div>
-            <div class="connector">
-              <div class="dot" />
-              <div v-if="i < days[activeDay].activities.length - 1" class="line" />
-            </div>
-            <div class="activity-card">
-              <a
-                :href="mapsUrl(item.activity)"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="activity-name"
-              >
-                {{ item.activity }}
-                <svg class="pin-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                </svg>
-              </a>
-              <p v-if="item.notes" class="activity-notes">{{ item.notes }}</p>
-            </div>
-          </div>
-        </section>
+          </section>
+        </div>
       </template>
     </main>
   </div>
@@ -161,134 +156,130 @@ onMounted(async () => {
 
 /* ── Body ── */
 .itinerary-body {
-  max-width: 680px;
-  margin: 0 auto;
-  padding: 70px 20px 60px;
+  max-width: 100%;
+  margin: 15px auto;
+  padding: 60px 100px 80px;
 }
 
-/* ── Day Nav ── */
+/* ── Two-column layout ── */
+.itinerary-layout {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 0 48px;
+  align-items: start;
+}
+
+/* ── Left Day Nav ── */
 .day-nav {
   display: flex;
-  gap: 8px;
-  padding: 24px 0 32px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+  padding-top: 8px;
+  position: sticky;
+  top: 80px;
 }
-.day-nav::-webkit-scrollbar { display: none; }
 
 .day-btn {
-  flex: 1 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 10px 14px;
-  border: 1.5px solid var(--forest);
-  border-bottom: 4px solid var(--forest);
-  border-radius: 0;
-  background: var(--parchment);
+  display: block;
+  width: 100%;
+  text-align: right;
+  background: none;
+  border: none;
+  padding: 14px 0;
+  font-family: 'Montserrat', 'Impact', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--forest);
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-  min-width: 86px;
+  transition: color 0.15s;
+  line-height: 1;
 }
-.day-btn:hover { border-bottom-color: var(--gold); }
+.day-btn:hover { color: var(--terracotta); }
 .day-btn.active {
-  background: var(--forest);
-  border-color: var(--forest);
-  border-bottom-color: var(--gold);
-  color: var(--bg-white);
+  color: var(--terracotta);
+  position: relative;
 }
-.day-label {
-  font-size: 13px;
-  font-weight: 600;
-}
-.day-date {
-  font-size: 11px;
-  opacity: 0.7;
-  margin-top: 2px;
+.day-btn.active::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: calc(48px + 4px);
+  height: 2px;
+  background: var(--terracotta);
 }
 
 /* ── Timeline ── */
 .timeline {
   display: flex;
   flex-direction: column;
+  background: var(--bg-white);
+  border-radius: 0 6px 6px 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
+  border-left: 4px solid var(--terracotta);
+  padding: 24px 28px 8px;
+  min-height: 200px;
 }
 
 .timeline-row {
   display: grid;
-  grid-template-columns: 72px 28px 1fr;
+  grid-template-columns: 24px 1fr;
   align-items: flex-start;
-}
-
-.time-col {
-  padding-top: 16px;
-  text-align: right;
-  padding-right: 6px;
-}
-.time-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--green-muted);
-  white-space: nowrap;
-  letter-spacing: 0.2px;
 }
 
 .connector {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 20px;
+  padding-top: 6px;
 }
 .dot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--terracotta);
-  border: 2px solid var(--forest);
   flex-shrink: 0;
-}
-.line {
-  width: 2px;
-  background: var(--green-border);
-  flex: 1;
-  min-height: 20px;
-  margin-top: 4px;
 }
 
 .activity-card {
-  background: var(--bg-white);
-  border: 1px solid var(--green-border);
-  border-radius: 0;
-  padding: 12px 16px;
-  margin: 6px 0 14px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 28px 16px;
+}
+
+.time-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--forest);
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
 }
 
 .activity-name {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--green-primary);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--forest);
   text-decoration: none;
   line-height: 1.3;
 }
 .activity-name:hover {
-  color: var(--red-accent);
+  color: var(--terracotta);
   text-decoration: underline;
-}
-.pin-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  opacity: 0.65;
 }
 
 .activity-notes {
   margin: 5px 0 0;
   font-size: 13px;
-  color: var(--green-muted);
+  font-style: italic;
+  color: var(--driftwood);
   line-height: 1.5;
   white-space: pre-line;
 }
@@ -321,8 +312,24 @@ onMounted(async () => {
   font-style: italic;
 }
 
-@media (max-width: 480px) {
-  .timeline-row { grid-template-columns: 60px 24px 1fr; }
-  .time-label { font-size: 10px; }
+@media (max-width: 600px) {
+  .timeline {
+    margin-top: 15px;
+    padding-left: 8px;
+  }
+  .day-btn.active::after {
+    width: calc(20px + 4px);
+  }
+  .itinerary-body {
+    padding: 0 10px 60px;
+  }
+.itinerary-layout {
+    grid-template-columns: 90px 1fr;
+    gap: 0 24px;
+  }
+  .day-btn {
+    font-size: 12px;
+    padding: 12px 0;
+  }
 }
 </style>
