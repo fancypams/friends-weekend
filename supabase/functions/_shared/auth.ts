@@ -47,7 +47,19 @@ function parseBearer(req: Request) {
 
 function isBypassEnabled() {
   const value = String(Deno.env.get('BYPASS_AUTH') ?? '').trim().toLowerCase()
-  return value === 'true' || value === '1' || value === 'yes'
+  if (!(value === 'true' || value === '1' || value === 'yes')) return false
+
+  // Safety: allow auth bypass only for local Supabase runtimes.
+  const supabaseUrl = String(Deno.env.get('SUPABASE_URL') ?? '').trim()
+  if (!supabaseUrl) return false
+
+  try {
+    const { hostname } = new URL(supabaseUrl)
+    const host = hostname.toLowerCase()
+    return host === 'localhost' || host === '127.0.0.1'
+  } catch {
+    return false
+  }
 }
 
 async function resolveBypassIdentity(admin: SupabaseClient): Promise<{ user: User; profile: ProfileRow } | null> {

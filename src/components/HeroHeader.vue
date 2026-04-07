@@ -1,5 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { globalSignOut } from '../lib/authAccess'
 
 defineProps({
   showBack: {
@@ -13,6 +15,7 @@ const nowMs = ref(Date.now())
 let tickTimer = null
 
 const menuOpen = ref(false)
+const router = useRouter()
 
 // ── Cloud animation ──
 const headerRef = ref(null)
@@ -90,6 +93,12 @@ const countdownUnits = computed(() => [
   { key: 'seconds', label: 'Seconds', value: countdown.value.seconds },
 ])
 
+async function signOutFromMenu() {
+  menuOpen.value = false
+  await globalSignOut().catch(() => {})
+  await router.replace('/login')
+}
+
 function updateNow() {
   nowMs.value = Date.now()
 }
@@ -119,6 +128,7 @@ onBeforeUnmount(() => {
       <router-link to="/basics" class="nav-item" @click="menuOpen = false">Basics</router-link>
       <router-link to="/itinerary" class="nav-item" @click="menuOpen = false">Itinerary</router-link>
       <router-link to="/photos" class="nav-item" @click="menuOpen = false">Photos</router-link>
+      <button type="button" class="nav-item nav-signout" @click="signOutFromMenu">Sign out</button>
     </nav>
 
     <!-- Clouds: behind text -->
@@ -194,6 +204,10 @@ onBeforeUnmount(() => {
 }
 .nav-item {
   display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
   padding: 14px 20px;
   font-family: var(--font-sign);
   font-size: 13px;
@@ -210,6 +224,10 @@ onBeforeUnmount(() => {
 }
 .nav-item.router-link-active {
   color: var(--terracotta);
+}
+
+.nav-signout {
+  border-top: 1px solid rgba(92, 138, 150, 0.25);
 }
 
 /* ── Cloud layers ── */

@@ -4,7 +4,15 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey)
-export const bypassAuth = String(import.meta.env.VITE_BYPASS_AUTH || '').toLowerCase() === 'true'
+
+function isLocalHostRuntime() {
+  if (typeof window === 'undefined') return false
+  const host = String(window.location.hostname || '').toLowerCase()
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+}
+
+const bypassRequested = String(import.meta.env.VITE_BYPASS_AUTH || '').toLowerCase() === 'true'
+export const bypassAuth = bypassRequested && (import.meta.env.DEV || isLocalHostRuntime())
 
 export const supabase = hasSupabaseConfig
   ? createClient(supabaseUrl, supabaseAnonKey, {

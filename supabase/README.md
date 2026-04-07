@@ -48,6 +48,33 @@ Deploy these functions:
 - `media`
 - `process-media`
 
+## 5) Session Lifetime Policy
+
+Set and document explicit auth session limits so login behavior is predictable:
+
+- JWT expiry: `3600` seconds (1 hour)
+- Session max lifetime (timebox): `336h` (14 days)
+- Session inactivity timeout: `168h` (7 days)
+
+For local Supabase CLI, these values are configured in `supabase/config.toml` under:
+
+- `[auth] jwt_expiry`
+- `[auth.sessions] timebox`
+- `[auth.sessions] inactivity_timeout`
+
+For hosted Supabase projects, set equivalent values in **Auth settings** in the Supabase Dashboard.
+
+## 6) Auth Rate Limits (Backend)
+
+Set server-side rate limits for login flows to complement client cooldowns:
+
+- `auth.rate_limit.email_sent = 4` (magic-link emails per hour per IP)
+- `auth.rate_limit.sign_in_sign_ups = 8` (sign-in attempts per 5 minutes per IP)
+- `auth.rate_limit.token_verifications = 10` (magic-link/OTP verifications per 5 minutes per IP)
+
+For local Supabase CLI, these values are in `supabase/config.toml`.
+For hosted Supabase projects, set the equivalent values in **Auth settings** in the Dashboard.
+
 ## Processing Behavior
 
 Current processing pipeline is **copy-through** for secure publishing:

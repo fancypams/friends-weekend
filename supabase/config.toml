@@ -1,5 +1,23 @@
 project_id = "friends-weekend"
 
+[auth]
+# Keep access tokens short-lived (1 hour) and enforce regular re-auth.
+jwt_expiry = 3600
+
+[auth.sessions]
+# Session max lifetime: 14 days.
+timebox = "336h"
+# Session inactivity timeout: 7 days without refresh/activity.
+inactivity_timeout = "168h"
+
+[auth.rate_limit]
+# Magic link / OTP emails per hour per IP.
+email_sent = 4
+# Sign-in + sign-up attempts per 5 minutes per IP.
+sign_in_sign_ups = 8
+# Magic link / OTP verifications per 5 minutes per IP.
+token_verifications = 10
+
 [functions.create-upload-ticket]
 verify_jwt = true
 

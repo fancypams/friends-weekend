@@ -66,6 +66,19 @@ IMAGE_MAX_BYTES=26214400
 VIDEO_MAX_BYTES=52428800
 ```
 
+6. Set auth session lifetime policy (Supabase Auth settings):
+
+```text
+JWT expiry: 3600 seconds (1 hour)
+Session max lifetime (timebox): 336h (14 days)
+Session inactivity timeout: 168h (7 days)
+```
+
+7. Keep auth bypass local-only:
+
+- `VITE_BYPASS_AUTH` is intended for localhost development only.
+- Do not enable bypass in staging/production.
+
 The backend enforces a capture-date gate: media must be captured between July 31 and August 4, 2026 (Seattle time), based on image/video metadata.
 
 ## Development Conventions
