@@ -8,7 +8,7 @@ import HeroHeader from '../components/HeroHeader.vue'
 
     <nav class="menu">
       <router-link to="/basics" class="pennant-card" style="--card-bg: var(--deep-sky)">
-        <span class="pennant-num">01</span>
+
         <div class="pennant-text">
           <span class="pennant-title">Basics</span>
           <span class="pennant-sub">Lodging &amp; Transportation</span>
@@ -17,7 +17,6 @@ import HeroHeader from '../components/HeroHeader.vue'
       </router-link>
 
       <router-link to="/itinerary" class="pennant-card" style="--card-bg: var(--steel-sky)">
-        <span class="pennant-num">02</span>
         <div class="pennant-text">
           <span class="pennant-title">Itinerary</span>
           <span class="pennant-sub">Day-by-day schedule</span>
@@ -26,7 +25,6 @@ import HeroHeader from '../components/HeroHeader.vue'
       </router-link>
 
             <router-link to="/photos" class="pennant-card" style="--card-bg: var(--green-primary)">
-        <span class="pennant-num">03</span>
         <div class="pennant-text">
           <span class="pennant-title">Photos</span>
           <span class="pennant-sub">Shared private gallery</span>
@@ -49,7 +47,7 @@ import HeroHeader from '../components/HeroHeader.vue'
 /* ── Menu ── */
 .menu {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(1, 1fr);
   gap: 20px;
   width: 100%;
   max-width: 760px;
@@ -73,17 +71,6 @@ import HeroHeader from '../components/HeroHeader.vue'
   transform: translateY(-2px);
 }
 
-.pennant-num {
-  font-family: var(--font-playfair);
-  font-size: 32px;
-  font-style: italic;
-  font-weight: 700;
-  color: var(--driftwood);
-  line-height: 1;
-  user-select: none;
-  margin-bottom: 16px;
-  opacity: 0.7;
-}
 
 .pennant-text {
   display: flex;
