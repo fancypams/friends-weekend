@@ -14,6 +14,56 @@ let tickTimer = null
 
 const menuOpen = ref(false)
 
+// ── Cloud animation ──
+const headerRef = ref(null)
+const cloudBackStyle = ref({})
+const cloudFrontStyle = ref({})
+
+let animFrame = null
+let animStart = null
+let prevTimestamp = null
+let normMouseX = 0.5
+let normMouseY = 0.5
+let backPushCurrent = 0
+let frontPushCurrent = 0
+
+function onMouseMove(e) {
+  const rect = headerRef.value?.getBoundingClientRect()
+  if (!rect) return
+  normMouseX = (e.clientX - rect.left) / rect.width
+  normMouseY = (e.clientY - rect.top) / rect.height
+}
+
+function animateClouds(timestamp) {
+  if (!animStart) animStart = timestamp
+  const dt = prevTimestamp ? Math.min(timestamp - prevTimestamp, 50) : 16
+  prevTimestamp = timestamp
+  const t = (timestamp - animStart) / 1000
+
+  // Two overlapping sine waves per axis for organic, non-mechanical drift
+  const backX  = Math.sin(t * 0.037) * 20 + Math.sin(t * 0.071) * 10 - 16
+  const backY  = Math.sin(t * 0.028) * 5  + Math.sin(t * 0.053) * 3
+  const frontX = Math.sin(t * 0.041) * 22 + Math.sin(t * 0.067) * 12 + 16
+  const frontY = Math.cos(t * 0.031) * 6  + Math.cos(t * 0.059) * 3
+
+  // Raw proximity (0–1)
+  const backProxRaw  = Math.max(0, 1 - Math.hypot(normMouseX - 0.2,  normMouseY - 0.25) / 0.45)
+  const frontProxRaw = Math.max(0, 1 - Math.hypot(normMouseX - 0.75, normMouseY - 0.8)  / 0.45)
+
+  // Cubic ease on proximity for smooth ease-in, lerp for smooth ease-out
+  const backTarget  = backProxRaw  * backProxRaw  * backProxRaw  * 60
+  const frontTarget = frontProxRaw * frontProxRaw * frontProxRaw * 70
+
+  const factor = 1 - Math.exp(-dt / 180)
+  backPushCurrent  += (backTarget  - backPushCurrent)  * factor
+  frontPushCurrent += (frontTarget - frontPushCurrent) * factor
+
+  cloudBackStyle.value  = { transform: `translate(${backX  - backPushCurrent}px, ${backY}px)` }
+  cloudFrontStyle.value = { transform: `translate(${frontX + frontPushCurrent}px, ${frontY}px)` }
+
+  animFrame = requestAnimationFrame(animateClouds)
+}
+
 const totalMsLeft = computed(() => Math.max(0, targetMs - nowMs.value))
 
 const countdown = computed(() => {
@@ -47,15 +97,17 @@ function updateNow() {
 onMounted(() => {
   updateNow()
   tickTimer = setInterval(updateNow, 1000)
+  animFrame = requestAnimationFrame(animateClouds)
 })
 
 onBeforeUnmount(() => {
   if (tickTimer) clearInterval(tickTimer)
+  if (animFrame) cancelAnimationFrame(animFrame)
 })
 </script>
 
 <template>
-  <header class="hero-header">
+  <header ref="headerRef" class="hero-header" @mousemove="onMouseMove">
     <!-- Hamburger button -->
     <button class="hamburger" :class="{ open: menuOpen }" @click="menuOpen = !menuOpen" aria-label="Toggle menu">
       <span /><span /><span />
@@ -70,7 +122,7 @@ onBeforeUnmount(() => {
     </nav>
 
     <!-- Clouds: behind text -->
-    <img class="clouds-back" src="../assets/clouds-two.png" alt="" aria-hidden="true" />
+    <img class="clouds-back" src="../assets/clouds-two.png" alt="" aria-hidden="true" :style="cloudBackStyle" />
 
     <!-- Main content -->
     <div class="hero-content">
@@ -88,7 +140,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Clouds: in front of text -->
-    <img class="clouds-front" src="../assets/cloud-large.png" alt="" aria-hidden="true" />
+    <img class="clouds-front" src="../assets/cloud-large.png" alt="" aria-hidden="true" :style="cloudFrontStyle" />
   </header>
 </template>
 
