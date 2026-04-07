@@ -111,6 +111,25 @@ function looksLikeAuthError(err) {
   )
 }
 
+async function withSessionRetry(task) {
+  try {
+    return await task()
+  } catch (err) {
+    if (bypassAuth || !supabase || !looksLikeAuthError(err)) {
+      throw err
+    }
+
+    const refreshed = await supabase.auth.refreshSession().catch(() => null)
+    const nextSession = refreshed?.data?.session ?? null
+    if (!nextSession?.user) {
+      throw err
+    }
+
+    session.value = nextSession
+    return task()
+  }
+}
+
 async function maybeReauth(err) {
   if (bypassAuth) return false
   if (!looksLikeAuthError(err)) return false
@@ -118,6 +137,12 @@ async function maybeReauth(err) {
   authError.value = 'Session expired. Please sign in again.'
   goToLogin()
   return true
+}
+
+async function handleApiFailure(err, setMessage) {
+  if (await maybeReauth(err)) return true
+  setMessage(normalizeUploadError(err))
+  return false
 }
 
 function goToLogin() {
@@ -192,7 +217,7 @@ async function hydrateItemUrls(items) {
       const previewVariant = item.media_type === 'image' ? 'thumb' : 'processed'
 
       try {
-        const signed = await signMediaUrl(item.id, previewVariant)
+        const signed = await withSessionRetry(() => signMediaUrl(item.id, previewVariant))
         return {
           ...item,
           preview_url: signed.signedUrl,
@@ -215,7 +240,7 @@ async function loadGallery({ reset = false } = {}) {
 
   try {
     const cursor = reset ? null : galleryCursor.value
-    const payload = await fetchGalleryFeed(cursor, 24)
+    const payload = await withSessionRetry(() => fetchGalleryFeed(cursor, 24))
     const hydrated = await hydrateItemUrls(payload.items || [])
 
     if (reset) {
@@ -227,10 +252,9 @@ async function loadGallery({ reset = false } = {}) {
 
     galleryCursor.value = payload.nextCursor || null
   } catch (err) {
-    if (await maybeReauth(err)) {
-      return
-    }
-    galleryError.value = normalizeUploadError(err)
+    await handleApiFailure(err, (message) => {
+      galleryError.value = message
+    })
   } finally {
     galleryLoading.value = false
   }
@@ -249,7 +273,7 @@ async function hydrateSession(nextSession) {
   }
 
   try {
-    const nextProfile = await fetchProfile(nextSession.user.id)
+    const nextProfile = await withSessionRetry(() => fetchProfile(nextSession.user.id))
     if (!nextProfile) {
       throw new Error('Could not load profile')
     }
@@ -264,10 +288,9 @@ async function hydrateSession(nextSession) {
 
     await loadGallery({ reset: true })
   } catch (err) {
-    if (await maybeReauth(err)) {
-      return
-    }
-    authError.value = normalizeUploadError(err)
+    await handleApiFailure(err, (message) => {
+      authError.value = message
+    })
   } finally {
     authLoading.value = false
   }
@@ -300,17 +323,17 @@ async function startUpload() {
       }
 
       row.status = 'requesting-ticket'
-      const ticket = await createUploadTicket({
+      const ticket = await withSessionRetry(() => createUploadTicket({
         filename: file.name,
         mimeType,
         bytes: file.size,
-      })
+      }))
 
       row.status = 'uploading'
       await uploadWithSignedTicket(ticket, file)
 
       row.status = 'processing'
-      await completeUpload(ticket.mediaId)
+      await withSessionRetry(() => completeUpload(ticket.mediaId))
 
       row.status = 'published'
     } catch (err) {
@@ -335,13 +358,12 @@ async function deleteMediaItem(item) {
   if (!confirmed) return
 
   try {
-    await removeMedia(item.id)
+    await withSessionRetry(() => removeMedia(item.id))
     await loadGallery({ reset: true })
   } catch (err) {
-    if (await maybeReauth(err)) {
-      return
-    }
-    galleryError.value = normalizeUploadError(err)
+    await handleApiFailure(err, (message) => {
+      galleryError.value = message
+    })
   }
 }
 
