@@ -115,7 +115,7 @@ async function maybeReauth(err) {
   if (bypassAuth) return false
   if (!looksLikeAuthError(err)) return false
 
-  await globalSignOut().catch(() => {})
+  authError.value = 'Session expired. Please sign in again.'
   goToLogin()
   return true
 }
