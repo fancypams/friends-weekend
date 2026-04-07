@@ -1,98 +1,121 @@
-# Vue 3 + Vite App
+# Friends Weekend
 
-A Vue 3 + Vite single-page application with routing and interactive map-based views.
+Vue 3 + Vite app with an invite-only Supabase auth flow and a private shared media gallery.
 
-## Tech Stack
+## Stack
 - Vue 3
 - Vue Router (hash history)
 - Vite
+- Supabase (Auth, Storage, Edge Functions)
 - Leaflet
 
 ## Prerequisites
-- Node `22.12.0` (managed via `.nvmrc`)
-- npm
+- Node `22.12.0` (see `.nvmrc`)
+- npm `10.9.x`
 
-## Run Locally
-
+## Local Development
 ```bash
-cd <your-project-directory>
 nvm use
 npm install
 npm run dev
 ```
 
-Open `http://localhost:5173/`.
+Default dev URL: `http://localhost:5173`
 
-## Build And Preview
-
+## Build
 ```bash
 npm run build
 npm run preview
 ```
 
 ## Routes
-- `#/` home page
-- `#/basics` basics/info page
-- `#/itinerary` itinerary page
-- `#/photos` secure shared gallery (Supabase-backed)
+- `#/` Home
+- `#/basics`
+- `#/itinerary`
+- `#/photos` (auth required)
+- `#/login`
 
-## Project Structure
-- `src/pages/` page-level views
-- `src/components/` reusable UI and itinerary/map components
-- `src/lib/` Supabase client and photo API helpers
-- `src/router/index.js` route definitions
-- `public/` static assets
-- `supabase/` SQL migrations and edge functions for secure media APIs
-
-## Secure Photos Setup
-
-1. Create a Supabase project and enable Email authentication (magic link) in Supabase Auth.
-2. Apply SQL migration in `supabase/migrations/`.
-3. Deploy edge functions in `supabase/functions/`.
-4. Add frontend env variables:
+## Environment
+Create `.env.local`:
 
 ```bash
 VITE_SUPABASE_URL=https://<project-ref>.supabase.co
 VITE_SUPABASE_ANON_KEY=<anon-key>
+VITE_BYPASS_AUTH=false
+
+# Optional local magic-link callback overrides
+VITE_MAGIC_LINK_REDIRECT_ORIGIN=
+VITE_MAGIC_LINK_REDIRECT_URL=
 ```
 
-5. Configure function secrets:
+## Auth Behavior
+- Invite-only magic link sign-in (`shouldCreateUser=false`)
+- Route-level protection for private routes
+- Local-only bypass support
+- Callback URL cleanup removes auth params like `code` and `error_*` after navigation
 
+## Local Auth Modes
+1. Full auth locally (default): keep `VITE_BYPASS_AUTH=false`
+2. Bypass auth locally:
+```bash
+VITE_BYPASS_AUTH=true
+```
+3. Force localhost callback for magic links:
+```bash
+VITE_MAGIC_LINK_REDIRECT_ORIGIN=http://localhost:5173
+```
+or
+```bash
+VITE_MAGIC_LINK_REDIRECT_URL=http://localhost:5173/#/login
+```
+
+`VITE_MAGIC_LINK_REDIRECT_URL` takes precedence over `VITE_MAGIC_LINK_REDIRECT_ORIGIN`.
+
+## Supabase Setup (Summary)
+1. Enable Email auth (Magic Link).
+2. Apply migration in `supabase/migrations/`.
+3. Deploy Edge Functions in `supabase/functions/`.
+4. Configure function secrets:
 ```bash
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-PROCESSOR_SECRET=<random-shared-secret>
+PROCESSOR_SECRET=<secret>
 IMAGE_MAX_BYTES=26214400
 VIDEO_MAX_BYTES=52428800
 ```
+5. Configure Auth URL settings:
+- Site URL: your prod app URL
+- Redirect URLs: include both prod and localhost login callbacks as needed
 
-6. Set auth session lifetime policy (Supabase Auth settings):
+## Session And Rate Policy
+Configured in `supabase/config.toml` (local CLI reference):
+- JWT expiry: `3600` seconds
+- Session timebox: `336h`
+- Session inactivity timeout: `168h`
+- Auth rate limits for email/sign-in/token verification
 
-```text
-JWT expiry: 3600 seconds (1 hour)
-Session max lifetime (timebox): 336h (14 days)
-Session inactivity timeout: 168h (7 days)
-```
+For hosted Supabase projects, set equivalent values in Dashboard Auth settings.
 
-7. Keep auth bypass local-only:
-
-- `VITE_BYPASS_AUTH` is intended for localhost development only.
-- Do not enable bypass in staging/production.
-
-The backend enforces a capture-date gate: media must be captured between July 31 and August 4, 2026 (Seattle time), based on image/video metadata.
-
-## Development Conventions
-See [`AGENTS.md`](./AGENTS.md) for:
-- coding and workflow rules
-- commit and PR title conventions
-- quality gates and definition of done
+## Project Structure
+- `src/pages` page views
+- `src/components` reusable UI
+- `src/lib` Supabase/auth/media API helpers
+- `src/router/index.js` route guards and URL cleanup
+- `supabase/` SQL, function code, backend docs
 
 ## Troubleshooting
-- If `npm run dev` fails with a Vite/Node version error, run:
-
+- Wrong Node version errors:
 ```bash
 nvm use
 node -v
+npm -v
 ```
+- Magic links redirecting to wrong host:
+  - Check Supabase `Authentication -> URL Configuration`
+  - Check local redirect override env vars
+- Frequent email send blocks:
+  - Check Supabase Auth rate limits
+  - Use custom SMTP for higher limits and better deliverability
 
-Expected Node version is `v22.12.0`.
+## More Repo Rules
+See [AGENTS.md](./AGENTS.md) for coding workflow and quality gates.
