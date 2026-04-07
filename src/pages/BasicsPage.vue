@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import HeroHeader from '../components/HeroHeader.vue'
 import airbnbPhoto from '../assets/airbnb.jpg'
 import moHomePhoto from '../assets/mo-home.jpg'
 
@@ -107,15 +108,7 @@ onMounted(async () => {
 
 <template>
   <div class="basics-page">
-    <header class="page-header">
-      <router-link to="/" class="back-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-        </svg>
-        Home
-      </router-link>
-      <h1 class="page-title">Basics</h1>
-    </header>
+    <HeroHeader show-back />
 
     <main class="basics-body">
       <div v-if="loading" class="state-msg">
@@ -130,7 +123,6 @@ onMounted(async () => {
       <div v-if="!loading && !errorMsg">
         <!-- ── LODGING ── -->
         <section class="section">
-          <h2 class="section-title">Lodging</h2>
 
           <div v-for="place in lodging" :key="place.name" class="property-card">
             <div class="property-photo">
@@ -170,7 +162,6 @@ onMounted(async () => {
 
         <!-- ── TRANSPORTATION ── -->
         <section v-if="transport" class="section">
-          <h2 class="section-title">Transportation</h2>
 
           <div class="transport-card">
             <h3 class="property-name">{{ transport.company }}</h3>
@@ -206,39 +197,8 @@ onMounted(async () => {
 .basics-page {
   min-height: 100vh;
   background: var(--bg-page);
-  font-family: system-ui, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   color: var(--green-darkest);
-}
-
-/* ── Header ── */
-.page-header {
-  background: var(--green-primary);
-  color: var(--bg-white);
-  padding: 20px 28px 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.back-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: rgba(255, 255, 255, 0.8);
-  text-decoration: none;
-  font-size: 14px;
-  transition: color 0.15s;
-  width: fit-content;
-}
-.back-btn:hover { color: var(--bg-white); }
-.back-btn svg { width: 16px; height: 16px; }
-
-.page-title {
-  font-family: 'Caveat', cursive;
-  font-size: 52px;
-  font-weight: 700;
-  margin: 0;
-  line-height: 1;
-  color: var(--bg-white);
 }
 
 /* ── Body ── */
@@ -252,7 +212,7 @@ onMounted(async () => {
 .section { margin-bottom: 48px; }
 
 .section-title {
-  font-family: 'Caveat', cursive;
+  font-family: var(--font-display);
   font-size: 36px;
   font-weight: 700;
   color: var(--green-darkest);
@@ -264,8 +224,6 @@ onMounted(async () => {
   display: flex;
   align-items: stretch;
   background: var(--bg-white);
-  border: 1px solid var(--green-border);
-  border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
   margin-bottom: 20px;
@@ -310,7 +268,7 @@ onMounted(async () => {
 }
 
 .property-name {
-  font-family: 'Caveat', cursive;
+  font-family: var(--font-display);
   font-size: 32px;
   font-weight: 700;
   color: var(--green-darkest);
@@ -341,8 +299,6 @@ onMounted(async () => {
 /* ── Transport Card ── */
 .transport-card {
   background: var(--bg-white);
-  border: 1px solid var(--green-border);
-  border-radius: 16px;
   padding: 28px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
   display: flex;
