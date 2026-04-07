@@ -1,6 +1,5 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import DayMap from './DayMap.vue'
 import HeroHeader from './HeroHeader.vue'
 
 const SHEET_ID = '10Vb7iKPjZC2THOPiMf50MtKMM5K3LQ70VTVdBCuSdlo'
@@ -114,9 +113,7 @@ onMounted(async () => {
           </button>
         </nav>
 
-        <DayMap :activities="days[activeDay].activities" />
-
-        <section class="timeline">
+<section class="timeline">
           <div v-if="days[activeDay].activities.length === 0" class="empty-day">
             No activities planned yet — check back soon!
           </div>
@@ -158,7 +155,7 @@ onMounted(async () => {
 .itinerary-page {
   min-height: 100vh;
   background: var(--bg-page);
-  font-family: system-ui, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   color: var(--green-darkest);
 }
 
@@ -185,17 +182,20 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   padding: 10px 14px;
-  border: 2px solid var(--green-border);
-  border-radius: 10px;
-  background: var(--bg-white);
+  border: 1.5px solid var(--forest);
+  border-bottom: 4px solid var(--forest);
+  border-radius: 0;
+  background: var(--parchment);
+  color: var(--forest);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
   min-width: 86px;
 }
-.day-btn:hover { border-color: var(--red-accent); }
+.day-btn:hover { border-bottom-color: var(--gold); }
 .day-btn.active {
-  border-color: var(--green-primary);
-  background: var(--green-primary);
+  background: var(--forest);
+  border-color: var(--forest);
+  border-bottom-color: var(--gold);
   color: var(--bg-white);
 }
 .day-label {
@@ -243,8 +243,8 @@ onMounted(async () => {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--red-accent);
-  border: 2px solid var(--green-primary);
+  background: var(--terracotta);
+  border: 2px solid var(--forest);
   flex-shrink: 0;
 }
 .line {
@@ -258,7 +258,7 @@ onMounted(async () => {
 .activity-card {
   background: var(--bg-white);
   border: 1px solid var(--green-border);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 12px 16px;
   margin: 6px 0 14px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);

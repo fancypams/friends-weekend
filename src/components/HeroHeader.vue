@@ -1,6 +1,5 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import MarinersCompass from './MarinersCompass.vue'
 
 defineProps({
   showBack: {
@@ -55,188 +54,189 @@ onBeforeUnmount(() => {
 
 <template>
   <header class="hero-header">
-    <router-link v-if="showBack" to="/" class="back-btn">
+    <router-link to="/" class="back-btn" :style="{ visibility: showBack ? 'visible' : 'hidden' }">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
       </svg>
       Home
     </router-link>
-    <div class="hero-inner">
-      <svg class="hero-sign" viewBox="-15 0 680 375" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Friends Weekend Seattle">
-        <!-- Outer border frame -->
-        <rect x="90" y="30" width="500" height="290" rx="4" fill="none" stroke="#aaaaaa" stroke-width="5"/>
 
-        <!-- Grid lines -->
-        <line x1="90"  y1="175" x2="590" y2="175" stroke="#aaaaaa" stroke-width="3"/>
-        <line x1="223" y1="30"  x2="223" y2="320" stroke="#aaaaaa" stroke-width="3"/>
-        <line x1="356" y1="30"  x2="356" y2="320" stroke="#aaaaaa" stroke-width="3"/>
-        <line x1="489" y1="30"  x2="489" y2="320" stroke="#aaaaaa" stroke-width="3"/>
+    <!-- Clouds: behind text -->
+    <img class="clouds-back" src="../assets/clouds-two.png" alt="" aria-hidden="true" />
 
-        <!-- Main text -->
-        <text x="285" y="150" text-anchor="middle" font-size="90" style="font-family:'Montserrat','Impact',sans-serif;fill:var(--red-accent);letter-spacing:3px;">FRIENDS</text>
-        <text x="260" y="270" text-anchor="middle" font-size="90" style="font-family:'Montserrat','Impact',sans-serif;fill:var(--red-accent);letter-spacing:3px;">WEEKEND</text>
-
-        <!-- Clock face -->
-        <circle cx="576" cy="175" r="68" fill="white" stroke="#aaaaaa" stroke-width="2"/>
-        <circle cx="576" cy="175" r="60" fill="none" stroke="#cccccc" stroke-width="1"/>
-
-        <!-- Tick marks -->
-        <line x1="576" y1="117" x2="576" y2="125" stroke="#777" stroke-width="1.5"/>
-        <line x1="634" y1="175" x2="626" y2="175" stroke="#777" stroke-width="1.5"/>
-        <line x1="576" y1="233" x2="576" y2="225" stroke="#777" stroke-width="1.5"/>
-        <line x1="518" y1="175" x2="526" y2="175" stroke="#777" stroke-width="1.5"/>
-
-        <!-- Clock hands -->
-        <line x1="576" y1="175" x2="576" y2="127" stroke="#444" stroke-width="2"   stroke-linecap="round"/>
-        <line x1="576" y1="175" x2="544" y2="147" stroke="#444" stroke-width="2.5" stroke-linecap="round"/>
-        <circle cx="576" cy="175" r="3" fill="#444"/>
-      </svg>
-
+    <!-- Main content -->
+    <div class="hero-content">
+      <p class="hero-label">Friends Weekend</p>
+      <h1 class="hero-city">SEATTLE</h1>
       <div class="countdown-badge" aria-live="polite">
-        <MarinersCompass class="compass" aria-hidden="true" />
         <template v-for="(unit, index) in countdownUnits" :key="unit.key">
           <div class="count-item">
             <span class="count-value">{{ unit.value }}</span>
             <span class="count-label">{{ unit.label }}</span>
           </div>
-          <span v-if="index < countdownUnits.length - 1" class="dot" aria-hidden="true"></span>
+          <span v-if="index < countdownUnits.length - 1" class="count-sep" aria-hidden="true">·</span>
         </template>
       </div>
     </div>
+
+    <!-- Clouds: in front of text -->
+    <img class="clouds-front" src="../assets/cloud-large.png" alt="" aria-hidden="true" />
   </header>
 </template>
 
 <style scoped>
 .hero-header {
-  background: var(--green-primary);
-  color: var(--bg-white);
-  padding: 14px 24px 0;
+  background: var(--sky);
+  position: relative;
+  min-height: fit-content;
   display: flex;
   flex-direction: column;
-  position: relative;
-  overflow: visible;
+  margin-bottom: -32px;
 }
 
 .back-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--sky-label);
   text-decoration: none;
-  font-size: 14px;
-  font-family: system-ui, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  font-weight: 600;
   transition: color 0.15s;
   width: fit-content;
-  margin-bottom: 8px;
+  position: relative;
+  z-index: 4;
+  padding: 14px 20px 0;
 }
-.back-btn:hover { color: var(--bg-white); }
+.back-btn:hover { color: var(--green-darkest); }
 .back-btn svg { width: 16px; height: 16px; }
 
-.hero-inner {
-  text-align: center;
-  padding: 4px 0 0;
-  margin-bottom: 14px;
+/* ── Cloud layers ── */
+.clouds-back {
+  position: absolute;
+  top: 0;
+  width: 72%;
+  z-index: 1;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.14));
+}
+
+.clouds-front {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 75%;
+  z-index: 3;
+  pointer-events: none;
+  user-select: none;
+  margin: 0 -175px -70px;
+  filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.14));
+}
+
+/* ── Content ── */
+.hero-content {
+  position: relative;
+  z-index: 2;
+  padding: 20px 105px;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-.hero-sign {
-  width: 100%;
-  max-width: 560px;
-  display: block;
+.hero-label {
+  font-family: var(--font-sign);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--sky-label);
+  margin: 0 0 4px;
+  align-self: start;
 }
 
+.hero-city {
+  font-family: var(--font-goldman);
+  font-size: clamp(72px, 16vw, 210px);
+  font-weight: 700;
+  color: var(--gold);
+  margin: 0 0 16px;
+  line-height: 0.9;
+  letter-spacing: -1px;
+}
+
+/* ── Countdown ── */
 .countdown-badge {
-  max-width: 92vw;
-  background: transparent;
-  border-radius: 0;
-  padding: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  box-shadow: none;
-  margin-bottom: 30px;
-}
-
-.compass {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-}
-
-.compass svg {
-  width: 100%;
-  height: 100%;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-self:start;
 }
 
 .count-item {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 54px;
+  align-items: baseline;
+  gap: 3px;
 }
 
 .count-value {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 20px;
-  font-weight: 600;
-  color: #F8F4EC;
+  font-family: var(--font-goldman);
+  font-size: clamp(16px, 3vw, 22px);
+  font-weight: 700;
+  color: var(--sky-label);
   line-height: 1;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .count-label {
-  margin-top: 1px;
-  font-family: system-ui, 'Segoe UI', sans-serif;
-  font-size: 9px;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  color: #D7E3DE;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+  font-family: var(--font-playfair);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: lowercase;
+  color: var(--sky-label);
+  opacity: 0.8;
 }
 
-.dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background: #D7E3DE;
+.count-sep {
+  color: var(--sky-label);
+  opacity: 0.5;
+  font-size: 14px;
 }
 
-@media (max-width: 680px) {
-  .hero-header {
-    padding-top: 12px;
+@media (max-width: 768px) {
+  .hero-content {
+    padding: 16px 24px 52px;
+  }
+
+  .clouds-back {
+    width: 100%;
+    right: 0;
+    margin: 15px;
+  }
+
+  .clouds-front {
+    width: 60%;
+    margin: 0 0 30px;
+  }
+
+  .hero-city {
+    font-size: clamp(52px, 18vw, 100px);
+  }
+
+  .hero-label {
+    margin: 0 0 10px;
+    align-self: center;
   }
 
   .countdown-badge {
-    width: fit-content;
-    max-width: 100%;
-    gap: 8px;
-    padding: 0;
-  }
-
-  .count-item {
-    min-width: 0;
+    align-self: center;
+    margin: 0 0 -30px;
   }
 
   .count-value {
-    font-size: clamp(14px, 4.6vw, 18px);
-  }
-
-  .count-label {
-    font-size: 8px;
-    letter-spacing: 1.1px;
-  }
-
-  .dot {
-    width: 3px;
-    height: 3px;
-  }
-
-  .compass {
-    width: 15px;
-    height: 15px;
+    font-size: clamp(14px, 4vw, 18px);
   }
 }
 </style>

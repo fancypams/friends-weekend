@@ -1,27 +1,46 @@
 :root {
-  /* ── Greens ── */
-  --green-darkest:  #1A3329;
-  --green-forest:   #1E4237;
-  --green-primary:  #2E6352;
-  --green-muted:    #4E6B5F;
-  --green-border:   #C8D8D0;
-  --green-light:    #E0EDEA;
-  --green-sage:     #A7B799;
+  /* ── Fonts ── */
+  --font-sans:    system-ui, 'Segoe UI', sans-serif;
+  --font-display: 'Caveat', cursive;
+  --font-sign:    'Montserrat', 'Impact', sans-serif;
+  --font-serif:   Georgia, 'Times New Roman', serif;
+  --font-goldman: 'Goldman', cursive;
+  --font-playfair: 'Playfair Display', serif;
 
-  /* ── Accent ── */
-  --red-accent:     #C94030;
-  --red-error:      #b94040;
+  /* ── Core Palette ── */
+  --sky:        #a8d4d8;  /* Header bg */
+  --gold:       #c4a028;  /* Primary accent */
+  --cream:      #f0ebe0;  /* Page bg */
+  --forest:     #2e3428;  /* Text / dark fill */
+  --parchment:  #f5f0e4;  /* Card bg */
 
-  /* ── Backgrounds ── */
-  --bg-page:        #fff9f2;
-  --bg-cream:       #F5F0E8;
-  --bg-white:       #ffffff;
+  /* ── Extended Palette ── */
+  --deep-sky:   #7ab0b4;  /* Borders, icons */
+  --steel-sky:  #5c8a96;  /* Hero label, countdown */
+  --honey:      #e8c86a;  /* Highlights */
+  --sage:       #4a6358;  /* Secondary fills */
+  --terracotta: #c47848;  /* Warmth / pop */
+  --driftwood:  #8a7a5e;  /* Muted text */
 
-  /* ── Warm / map tones ── */
-  --warm-tan:          #f0e6cc;
-  --warm-brown:        #8b7340;
-  --warm-brown-muted:  #7a6650;
-  --warm-text-dark:    #3d2b1f;
+  /* ── Semantic aliases ── */
+  --green-darkest:    var(--forest);
+  --green-forest:     var(--forest);
+  --green-primary:    var(--sage);
+  --green-muted:      var(--driftwood);
+  --green-border:     var(--deep-sky);
+  --green-light:      var(--parchment);
+  --green-sage:       var(--sky);
+  --red-accent:       var(--terracotta);
+  --red-error:        #b94040;
+  --bg-page:          var(--cream);
+  --bg-cream:         var(--parchment);
+  --bg-white:         #ffffff;
+  --sky-blue:         var(--sky);
+  --sky-label:        var(--steel-sky);
+  --warm-tan:         var(--parchment);
+  --warm-brown:       var(--terracotta);
+  --warm-brown-muted: var(--driftwood);
+  --warm-text-dark:   var(--forest);
 }
 
 *, *::before, *::after {

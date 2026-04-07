@@ -190,7 +190,7 @@ watch(() => props.activities, updateMarkers)
   color: #fff;
   font-size: 12px;
   font-weight: 700;
-  font-family: system-ui, sans-serif;
+  font-family: var(--font-sans);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -200,7 +200,7 @@ watch(() => props.activities, updateMarkers)
 
 .leaflet-popup-content-wrapper {
   border-radius: 8px;
-  font-family: system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 13px;
   color: var(--warm-text-dark);
 }
