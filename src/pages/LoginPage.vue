@@ -73,6 +73,28 @@ function normalizeRedirect(value) {
   return candidate
 }
 
+function normalizeOrigin(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+
+  try {
+    const url = new URL(raw)
+    if (!['http:', 'https:'].includes(url.protocol)) return ''
+    return url.origin
+  } catch {
+    return ''
+  }
+}
+
+function resolveMagicLinkRedirectTo() {
+  const explicitUrl = String(import.meta.env.VITE_MAGIC_LINK_REDIRECT_URL || '').trim()
+  if (explicitUrl) return explicitUrl
+
+  const overrideOrigin = normalizeOrigin(import.meta.env.VITE_MAGIC_LINK_REDIRECT_ORIGIN)
+  const origin = overrideOrigin || window.location.origin
+  return `${origin}/#/login`
+}
+
 function parseHashParams() {
   const rawHash = String(window.location.hash || '')
   if (!rawHash) return new URLSearchParams()
@@ -191,7 +213,7 @@ async function submitMagicLink() {
   setPostLoginRedirect(redirectTarget)
 
   try {
-    const redirectTo = `${window.location.origin}/#/login`
+    const redirectTo = resolveMagicLinkRedirectTo()
     await sendMagicLink(email.value, redirectTo)
     startCooldown(COOLDOWN_SECONDS)
     infoMsg.value = `Magic link sent to ${email.value.trim().toLowerCase()}. Open it on this device.`

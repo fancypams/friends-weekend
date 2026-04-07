@@ -14,6 +14,34 @@ function safeRedirectPath(value) {
   return candidate
 }
 
+const AUTH_CALLBACK_QUERY_KEYS = [
+  'code',
+  'error',
+  'error_code',
+  'error_description',
+  'sb',
+]
+
+function cleanupAuthCallbackQueryParams() {
+  if (typeof window === 'undefined') return
+
+  const url = new URL(window.location.href)
+  let changed = false
+
+  for (const key of AUTH_CALLBACK_QUERY_KEYS) {
+    if (url.searchParams.has(key)) {
+      url.searchParams.delete(key)
+      changed = true
+    }
+  }
+
+  if (!changed) return
+
+  const search = url.searchParams.toString()
+  const nextUrl = `${url.origin}${url.pathname}${search ? `?${search}` : ''}${url.hash}`
+  window.history.replaceState({}, '', nextUrl)
+}
+
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
@@ -79,6 +107,10 @@ router.beforeEach(async (to) => {
 
     return true
   }
+})
+
+router.afterEach(() => {
+  cleanupAuthCallbackQueryParams()
 })
 
 export default router
