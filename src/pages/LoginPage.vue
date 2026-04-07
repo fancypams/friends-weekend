@@ -20,6 +20,7 @@ const errorMsg = ref('')
 const showInvite404 = ref(false)
 const checkingSession = ref(true)
 const cooldownUntil = ref(0)
+const nowMs = ref(Date.now())
 
 const COOLDOWN_SECONDS = 60
 const RATE_LIMIT_COOLDOWN_SECONDS = 180
@@ -29,7 +30,7 @@ let cooldownTimer = null
 let authSubscription = null
 
 const cooldownSeconds = computed(() => {
-  const ms = cooldownUntil.value - Date.now()
+  const ms = cooldownUntil.value - nowMs.value
   return ms > 0 ? Math.ceil(ms / 1000) : 0
 })
 
@@ -38,6 +39,7 @@ const canSend = computed(() => !loading.value && cooldownSeconds.value === 0)
 function startCooldown(seconds) {
   const until = Date.now() + seconds * 1000
   cooldownUntil.value = until
+  nowMs.value = Date.now()
   localStorage.setItem(COOLDOWN_KEY, String(until))
 }
 
@@ -49,6 +51,7 @@ function syncCooldownFromStorage() {
 function startCooldownTicker() {
   if (cooldownTimer) return
   cooldownTimer = window.setInterval(() => {
+    nowMs.value = Date.now()
     if (cooldownUntil.value <= Date.now()) {
       cooldownUntil.value = 0
       localStorage.removeItem(COOLDOWN_KEY)
