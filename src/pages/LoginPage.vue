@@ -70,6 +70,54 @@ function normalizeRedirect(value) {
   return candidate
 }
 
+function parseHashParams() {
+  const rawHash = String(window.location.hash || '')
+  if (!rawHash) return new URLSearchParams()
+
+  const hashValue = rawHash.startsWith('#') ? rawHash.slice(1) : rawHash
+  if (!hashValue) return new URLSearchParams()
+
+  if (hashValue.includes('?')) {
+    return new URLSearchParams(hashValue.split('?')[1] || '')
+  }
+
+  const normalized = hashValue.replace(/^\//, '')
+  if (normalized.includes('error=')) {
+    return new URLSearchParams(normalized)
+  }
+
+  return new URLSearchParams()
+}
+
+function getAuthErrorFromUrl() {
+  const searchParams = new URLSearchParams(window.location.search || '')
+  const hashParams = parseHashParams()
+
+  const errorCode = String(searchParams.get('error_code') || hashParams.get('error_code') || '').toLowerCase()
+  const description = String(searchParams.get('error_description') || hashParams.get('error_description') || '').toLowerCase()
+  const error = String(searchParams.get('error') || hashParams.get('error') || '').toLowerCase()
+  const hasAuthError = Boolean(error || errorCode || description)
+
+  if (!hasAuthError) return ''
+
+  if (errorCode === 'otp_expired' || description.includes('invalid or has expired')) {
+    return 'Link expired. Request a new magic link and try again.'
+  }
+
+  if (error === 'access_denied') {
+    return 'Sign-in link was not accepted. Request a new magic link and try again.'
+  }
+
+  return 'Could not complete sign in from that link. Request a new magic link and try again.'
+}
+
+function clearAuthErrorFromUrl() {
+  const redirect = normalizeRedirect(route.query.redirect)
+  const query = redirect !== '/' ? `?redirect=${encodeURIComponent(redirect)}` : ''
+  const cleanUrl = `${window.location.origin}${window.location.pathname}#/login${query}`
+  window.history.replaceState({}, '', cleanUrl)
+}
+
 function isInviteMissError(err) {
   const message = String(err?.message || '').toLowerCase()
   const code = String(err?.code || '').toLowerCase()
@@ -160,6 +208,12 @@ async function submitMagicLink() {
 }
 
 onMounted(async () => {
+  const callbackError = getAuthErrorFromUrl()
+  if (callbackError) {
+    errorMsg.value = callbackError
+    clearAuthErrorFromUrl()
+  }
+
   syncCooldownFromStorage()
   startCooldownTicker()
 
