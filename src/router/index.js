@@ -57,6 +57,10 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  if (import.meta.env.PROD && to.path === '/photos') {
+    return '/'
+  }
+
   if (bypassAuth) {
     return true
   }
