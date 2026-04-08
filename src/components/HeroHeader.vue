@@ -16,7 +16,6 @@ let tickTimer = null
 
 const menuOpen = ref(false)
 const router = useRouter()
-const showPhotos = !import.meta.env.PROD
 
 // ── Cloud animation ──
 const headerRef = ref(null)
@@ -130,7 +129,7 @@ onBeforeUnmount(() => {
       <router-link to="/itinerary" class="nav-item" @click="menuOpen = false">Itinerary</router-link>
       <router-link to="/pre-trip" class="nav-item" @click="menuOpen = false">Pre-Trip Prep</router-link>
       <router-link to="/groceries" class="nav-item" @click="menuOpen = false">Groceries</router-link>
-      <router-link v-if="showPhotos" to="/photos" class="nav-item" @click="menuOpen = false">Photos</router-link>
+      <router-link to="/photos" class="nav-item" @click="menuOpen = false">Photos</router-link>
       <button type="button" class="nav-item nav-signout" @click="signOutFromMenu">Sign out</button>
     </nav>
 

@@ -1,7 +1,5 @@
 <script setup>
 import HeroHeader from '../components/HeroHeader.vue'
-
-const showPhotos = !import.meta.env.PROD
 </script>
 
 <template>
@@ -40,7 +38,7 @@ const showPhotos = !import.meta.env.PROD
         </div>
       </router-link>
 
-      <router-link v-if="showPhotos" to="/photos" class="pennant-card" style="--card-bg: var(--gold)">
+      <router-link to="/photos" class="pennant-card" style="--card-bg: var(--gold)">
         <div class="pennant-text">
           <span class="pennant-title">Photos</span>
           <span class="pennant-sub">Shared private gallery</span>
