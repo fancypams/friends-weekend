@@ -1,7 +1,12 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import HeroHeader from '../components/HeroHeader.vue'
+import MediaCard from '../components/gallery/MediaCard.vue'
+import UploadPanel from '../components/gallery/UploadPanel.vue'
+import FullScreenViewer from '../components/gallery/FullScreenViewer.vue'
+import EmptyState from '../components/gallery/EmptyState.vue'
+import LoadingState from '../components/gallery/LoadingState.vue'
+import ErrorState from '../components/gallery/ErrorState.vue'
 import { bypassAuth, hasSupabaseConfig, supabase } from '../lib/supabaseClient'
 import { globalSignOut } from '../lib/authAccess'
 import {
@@ -14,88 +19,91 @@ import {
   uploadWithSignedTicket,
 } from '../lib/photosApi'
 
-const router = useRouter()
-
 const session = ref(null)
 const profile = ref(null)
 const authLoading = ref(true)
 const authError = ref('')
 
-const selectedFiles = ref([])
-const uploadInProgress = ref(false)
-const uploadResults = ref([])
-
 const galleryItems = ref([])
 const galleryCursor = ref(null)
 const galleryLoading = ref(false)
 const galleryError = ref('')
-const activeIndex = ref(0)
 
-const captureWindowLabel = 'Jul 31-Aug 4, 2026 (Seattle time)'
+const queueItems = ref([])
+const uploadPanelOpen = ref(false)
+const uploadBusy = ref(false)
+const uploadError = ref('')
+const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
+
+const viewerOpen = ref(false)
+const viewerIndex = ref(0)
+const viewerUrl = ref('')
+const viewerLoading = ref(false)
+const viewerError = ref('')
+const carouselIndex = ref(0)
+
+const downloadingById = ref({})
+const deletingById = ref({})
+let carouselTimer = null
+
+const allowedMime = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'video/mp4',
+  'video/quicktime',
+])
+
+const mimeAliases = {
+  'image/jpg': 'image/jpeg',
+  'image/pjpeg': 'image/jpeg',
+  'video/mov': 'video/quicktime',
+  'video/x-m4v': 'video/mp4',
+}
 
 let authSubscription = null
+let liveSyncChannel = null
+const INITIAL_PREVIEW_COUNT = 6
+const LOAD_MORE_PREVIEW_COUNT = 2
+const INITIAL_PAGE_SIZE = 12
+const LOAD_MORE_PAGE_SIZE = 24
+const IMAGE_MAX_BYTES = 25 * 1024 * 1024
+const VIDEO_MAX_BYTES = 250 * 1024 * 1024
+const UPLOAD_RETRY_ATTEMPTS = 3
+const RETRY_BASE_MS = 700
+const UPLOAD_DB_NAME = 'friends-weekend-upload-queue'
+const UPLOAD_DB_STORE = 'queue_items'
 
 const isSignedIn = computed(() => bypassAuth || Boolean(session.value?.user))
 const isInvited = computed(() => bypassAuth || Boolean(profile.value?.active))
 const isAdmin = computed(() => bypassAuth || profile.value?.role === 'admin')
 const userId = computed(() => session.value?.user?.id ?? null)
-const userEmail = computed(() => profile.value?.email ?? session.value?.user?.email ?? (bypassAuth ? 'group@friends-weekend.local' : ''))
+const userEmail = computed(() => profile.value?.email ?? session.value?.user?.email ?? 'friend@local')
+const captureWindowLabel = computed(() => (
+  'Capture window is Jul 31-Aug 4, 2026 (Seattle time).'
+))
+
 const canLoadApp = computed(() => hasSupabaseConfig && (bypassAuth || (isSignedIn.value && isInvited.value)))
-const activeItem = computed(() => galleryItems.value[activeIndex.value] ?? null)
-
-let carouselTimer = null
-
-function prettyDate(iso) {
-  if (!iso) return 'Unknown date'
-  const date = new Date(iso)
-  return date.toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
-function prettyBytes(bytes) {
-  if (!Number.isFinite(Number(bytes))) return '--'
-  const value = Number(bytes)
-  if (value < 1024) return `${value} B`
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
-  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`
-  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`
-}
-
-function formatUploader(email) {
-  const value = String(email || '').trim().toLowerCase()
-  if (!value) return 'Friend'
-  return value.split('@')[0]
-}
-
-function initialsFromEmail(email) {
-  const value = formatUploader(email).replace(/[^a-z0-9]+/gi, ' ').trim()
-  if (!value) return 'FR'
-  const parts = value.split(/\s+/).filter(Boolean)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase()
-}
-
-function avatarColor(email) {
-  const value = String(email || '')
-  let hash = 0
-  for (let i = 0; i < value.length; i += 1) {
-    hash = value.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  const hue = Math.abs(hash) % 360
-  return `hsl(${hue} 62% 42%)`
-}
-
-function mediaLabel(item) {
-  return item?.media_type === 'video' ? 'Video' : 'Photo'
-}
+const hasMore = computed(() => Boolean(galleryCursor.value))
+const activeItem = computed(() => galleryItems.value[viewerIndex.value] ?? null)
+const featuredItem = computed(() => galleryItems.value[carouselIndex.value] ?? null)
+const hasCarouselNav = computed(() => galleryItems.value.length > 1)
+const selectedCount = computed(() => queueItems.value.length)
 
 function normalizeUploadError(err) {
   if (!err) return 'Request failed'
-  return typeof err === 'string' ? err : err.message || 'Request failed'
+  if (typeof err === 'string') return err
+  const body = err.body || null
+  return (
+    body?.reason
+    || body?.error
+    || body?.message
+    || err.reason
+    || err.message
+    || 'Request failed'
+  )
 }
 
 function looksLikeAuthError(err) {
@@ -121,9 +129,7 @@ async function withSessionRetry(task) {
 
     const refreshed = await supabase.auth.refreshSession().catch(() => null)
     const nextSession = refreshed?.data?.session ?? null
-    if (!nextSession?.user) {
-      throw err
-    }
+    if (!nextSession?.user) throw err
 
     session.value = nextSession
     return task()
@@ -131,47 +137,184 @@ async function withSessionRetry(task) {
 }
 
 async function maybeReauth(err) {
-  if (bypassAuth) return false
-  if (!looksLikeAuthError(err)) return false
-
-  authError.value = 'Session expired. Please sign in again.'
-  goToLogin()
+  if (bypassAuth || !looksLikeAuthError(err)) return false
+  authError.value = 'Session expired. Please refresh this page.'
   return true
 }
 
-async function handleApiFailure(err, setMessage) {
-  if (await maybeReauth(err)) return true
-  setMessage(normalizeUploadError(err))
-  return false
-}
-
-function goToLogin() {
-  router.replace({
-    path: '/login',
-    query: { redirect: '/photos', reauth: '1' },
-  })
-}
-
 async function signOut() {
+  stopLiveSync()
   await globalSignOut().catch(() => {})
-  goToLogin()
+  session.value = null
+  profile.value = null
+  authError.value = 'Signed out.'
 }
 
 function guessMimeFromName(name) {
-  const ext = String(name).toLowerCase().split('.').pop() || ''
+  const ext = String(name).trim().toLowerCase().split('.').pop() || ''
   if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
   if (ext === 'png') return 'image/png'
   if (ext === 'webp') return 'image/webp'
   if (ext === 'heic') return 'image/heic'
   if (ext === 'heif') return 'image/heif'
-  if (ext === 'mp4') return 'video/mp4'
+  if (ext === 'mp4' || ext === 'm4v') return 'video/mp4'
   if (ext === 'mov') return 'video/quicktime'
   return ''
+}
+
+function normalizedMime(file) {
+  const raw = String(file?.type || '').trim().toLowerCase()
+  const alias = mimeAliases[raw]
+  const fromType = alias || raw
+  const fromName = guessMimeFromName(file?.name)
+  const mime = fromType || fromName
+  return allowedMime.has(mime) ? mime : ''
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetryableUploadError(err) {
+  const status = Number(err?.status || 0)
+  const message = String(err?.message || '').toLowerCase()
+  const code = String(err?.code || '').toLowerCase()
+  return (
+    !isOnline.value
+    || status >= 500
+    || code === 'request_timeout'
+    || message.includes('network')
+    || message.includes('failed to fetch')
+    || message.includes('timed out')
+  )
+}
+
+async function withRetries(task, attempts = UPLOAD_RETRY_ATTEMPTS) {
+  let lastError = null
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await task()
+    } catch (err) {
+      lastError = err
+      if (i === attempts - 1 || !isRetryableUploadError(err)) throw err
+      await sleep(RETRY_BASE_MS * (2 ** i))
+    }
+  }
+  throw lastError || new Error('Request failed')
+}
+
+function openUploadDb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB unavailable'))
+      return
+    }
+
+    const request = indexedDB.open(UPLOAD_DB_NAME, 1)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(UPLOAD_DB_STORE)) {
+        db.createObjectStore(UPLOAD_DB_STORE, { keyPath: 'id' })
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error || new Error('Failed to open upload DB'))
+  })
+}
+
+async function persistQueueItem(item) {
+  const db = await openUploadDb().catch(() => null)
+  if (!db) return
+
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(UPLOAD_DB_STORE, 'readwrite')
+    tx.objectStore(UPLOAD_DB_STORE).put(item)
+    tx.oncomplete = resolve
+    tx.onerror = () => reject(tx.error || new Error('Failed to persist queue item'))
+  }).catch(() => { })
+
+  db.close()
+}
+
+async function removeQueueItemFromStorage(id) {
+  const db = await openUploadDb().catch(() => null)
+  if (!db) return
+
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(UPLOAD_DB_STORE, 'readwrite')
+    tx.objectStore(UPLOAD_DB_STORE).delete(id)
+    tx.oncomplete = resolve
+    tx.onerror = () => reject(tx.error || new Error('Failed to remove queue item'))
+  }).catch(() => { })
+
+  db.close()
+}
+
+async function loadPersistedQueue() {
+  const db = await openUploadDb().catch(() => null)
+  if (!db) return []
+
+  const rows = await new Promise((resolve, reject) => {
+    const tx = db.transaction(UPLOAD_DB_STORE, 'readonly')
+    const request = tx.objectStore(UPLOAD_DB_STORE).getAll()
+    request.onsuccess = () => resolve(request.result || [])
+    request.onerror = () => reject(request.error || new Error('Failed to read queue'))
+  }).catch(() => [])
+
+  db.close()
+  return Array.isArray(rows) ? rows : []
+}
+
+async function restoreUploadQueue() {
+  const rows = await loadPersistedQueue()
+  if (!rows.length) return
+
+  queueItems.value = rows
+    .map((item) => {
+      const transient = ['requesting-ticket', 'uploading', 'processing']
+      const status = transient.includes(item.status) ? 'queued' : item.status
+      return {
+        ...item,
+        progress: status === 'queued' ? 0 : Number(item.progress || 0),
+        error: status === 'queued' ? 'Upload resumed after reconnect/reopen.' : String(item.error || ''),
+      }
+    })
+    .filter((item) => item.status !== 'published')
+}
+
+function onOnline() {
+  isOnline.value = true
+  uploadError.value = ''
+  const hasQueued = queueItems.value.some((item) => item.status === 'queued')
+  if (hasQueued && canLoadApp.value && !uploadBusy.value) {
+    void startUpload()
+  }
+}
+
+function onOffline() {
+  isOnline.value = false
+  uploadError.value = 'You are offline. Uploads will resume when connection returns.'
 }
 
 function canRemove(item) {
   if (!item) return false
   return isAdmin.value || item.owner_id === userId.value
+}
+
+function formatUploader(email) {
+  const value = String(email || '').trim().toLowerCase()
+  if (!value) return 'Friend'
+  return value.split('@')[0].replace(/[._-]+/g, ' ')
+}
+
+function prettyDate(iso) {
+  if (!iso) return 'Unknown date'
+  return new Date(iso).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 function stopCarouselTimer() {
@@ -186,75 +329,208 @@ function startCarouselTimer() {
   if (galleryItems.value.length < 2) return
 
   carouselTimer = setInterval(() => {
-    activeIndex.value = (activeIndex.value + 1) % galleryItems.value.length
-  }, 5000)
+    carouselIndex.value = (carouselIndex.value + 1) % galleryItems.value.length
+  }, 4000)
 }
 
-function setActiveIndex(index) {
+function setCarouselIndex(index, { pause = false } = {}) {
   const max = galleryItems.value.length - 1
   if (max < 0) {
-    activeIndex.value = 0
+    carouselIndex.value = 0
     return
   }
-  activeIndex.value = Math.max(0, Math.min(max, index))
-  startCarouselTimer()
+  carouselIndex.value = Math.max(0, Math.min(max, index))
+  if (pause) {
+    stopCarouselTimer()
+  } else {
+    startCarouselTimer()
+  }
 }
 
-function showNext() {
+function showCarouselNext() {
   if (!galleryItems.value.length) return
-  setActiveIndex((activeIndex.value + 1) % galleryItems.value.length)
+  setCarouselIndex((carouselIndex.value + 1) % galleryItems.value.length, { pause: true })
 }
 
-function showPrev() {
+function showCarouselPrev() {
   if (!galleryItems.value.length) return
-  const next = activeIndex.value - 1 < 0 ? galleryItems.value.length - 1 : activeIndex.value - 1
-  setActiveIndex(next)
+  setCarouselIndex((carouselIndex.value - 1 + galleryItems.value.length) % galleryItems.value.length, { pause: true })
 }
 
-async function hydrateItemUrls(items) {
-  return Promise.all(
-    items.map(async (item) => {
-      const previewVariant = item.media_type === 'image' ? 'thumb' : 'processed'
+function focusCarouselByItem(item) {
+  const index = galleryItems.value.findIndex((row) => row.id === item?.id)
+  if (index < 0) return
+  setCarouselIndex(index, { pause: true })
+}
 
-      try {
-        const signed = await withSessionRetry(() => signMediaUrl(item.id, previewVariant))
-        return {
-          ...item,
-          preview_url: signed.signedUrl,
-        }
-      } catch {
-        return {
-          ...item,
-          preview_url: null,
-        }
-      }
-    }),
-  )
+function preserveSelections(mutator) {
+  const activeViewerId = activeItem.value?.id || null
+  const activeCarouselId = featuredItem.value?.id || null
+  mutator()
+
+  if (!galleryItems.value.length) {
+    viewerIndex.value = 0
+    carouselIndex.value = 0
+    return
+  }
+
+  if (activeViewerId) {
+    const nextViewerIndex = galleryItems.value.findIndex((row) => row.id === activeViewerId)
+    viewerIndex.value = nextViewerIndex >= 0 ? nextViewerIndex : 0
+  } else if (viewerIndex.value > galleryItems.value.length - 1) {
+    viewerIndex.value = galleryItems.value.length - 1
+  }
+
+  if (activeCarouselId) {
+    const nextCarouselIndex = galleryItems.value.findIndex((row) => row.id === activeCarouselId)
+    carouselIndex.value = nextCarouselIndex >= 0 ? nextCarouselIndex : 0
+  } else if (carouselIndex.value > galleryItems.value.length - 1) {
+    carouselIndex.value = galleryItems.value.length - 1
+  }
+}
+
+async function resolveOwnerEmail(ownerId) {
+  const existing = galleryItems.value.find((row) => row.owner_id === ownerId && row.owner_email)
+  if (existing?.owner_email) return existing.owner_email
+
+  try {
+    const nextProfile = await withSessionRetry(() => fetchProfile(ownerId))
+    return nextProfile?.email || ''
+  } catch {
+    return ''
+  }
+}
+
+async function applyRealtimeInsert(payload) {
+  const row = payload?.new || null
+  if (!row?.id) return
+  if (String(row.status || '').toLowerCase() !== 'published') return
+  if (galleryItems.value.some((item) => item.id === row.id)) return
+
+  const ownerEmail = await resolveOwnerEmail(row.owner_id)
+  const nextItem = {
+    ...row,
+    owner_email: ownerEmail,
+    preview_url: '',
+  }
+
+  preserveSelections(() => {
+    galleryItems.value = [nextItem, ...galleryItems.value]
+  })
+  void signAndPatchPreview(nextItem)
+}
+
+function stopLiveSync() {
+  if (!liveSyncChannel || !supabase) return
+  supabase.removeChannel(liveSyncChannel)
+  liveSyncChannel = null
+}
+
+function startLiveSync() {
+  if (!supabase || !canLoadApp.value) return
+  stopLiveSync()
+
+  liveSyncChannel = supabase
+    .channel(`photos-media-assets-${userId.value || 'guest'}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'media_assets', filter: 'status=eq.published' },
+      async (payload) => {
+        await applyRealtimeInsert(payload)
+      },
+    )
+    .subscribe()
+}
+
+function setDownloading(mediaId, value) {
+  downloadingById.value = {
+    ...downloadingById.value,
+    [mediaId]: value,
+  }
+}
+
+function setDeleting(mediaId, value) {
+  deletingById.value = {
+    ...deletingById.value,
+    [mediaId]: value,
+  }
+}
+
+function triggerDownload(url, filename) {
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename || 'media'
+  anchor.rel = 'noopener'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+}
+
+async function resolvePreviewUrl(item) {
+  const variant = item.media_type === 'image' ? 'thumb' : 'processed'
+  try {
+    const signed = await withSessionRetry(() => signMediaUrl(item.id, variant))
+    return signed.signedUrl || ''
+  } catch {
+    return ''
+  }
+}
+
+async function signAndPatchPreview(item) {
+  if (!item?.id) return
+  const url = await resolvePreviewUrl(item)
+  if (!url) return
+
+  const index = galleryItems.value.findIndex((row) => row.id === item.id)
+  if (index < 0) return
+  galleryItems.value[index].preview_url = url
+}
+
+async function hydratePreviews(items, awaitCount) {
+  const immediate = items.slice(0, awaitCount)
+  const deferred = items.slice(awaitCount)
+
+  await Promise.all(immediate.map((item) => signAndPatchPreview(item)))
+  for (const item of deferred) {
+    void signAndPatchPreview(item)
+  }
 }
 
 async function loadGallery({ reset = false } = {}) {
   if (!canLoadApp.value) return
 
   galleryLoading.value = true
-  galleryError.value = ''
+  if (reset) galleryError.value = ''
 
   try {
     const cursor = reset ? null : galleryCursor.value
-    const payload = await withSessionRetry(() => fetchGalleryFeed(cursor, 24))
-    const hydrated = await hydrateItemUrls(payload.items || [])
+    const pageSize = reset ? INITIAL_PAGE_SIZE : LOAD_MORE_PAGE_SIZE
+    const payload = await withSessionRetry(() => fetchGalleryFeed(cursor, pageSize))
+    const nextItems = (payload.items || []).map((item) => ({
+      ...item,
+      preview_url: '',
+    }))
 
-    if (reset) {
-      galleryItems.value = hydrated
-      activeIndex.value = 0
-    } else {
-      galleryItems.value = [...galleryItems.value, ...hydrated]
+    galleryItems.value = reset ? nextItems : [...galleryItems.value, ...nextItems]
+    galleryCursor.value = payload.nextCursor || null
+
+    if (!galleryItems.value.length) {
+      viewerIndex.value = 0
+      carouselIndex.value = 0
+    } else if (viewerIndex.value > galleryItems.value.length - 1) {
+      viewerIndex.value = galleryItems.value.length - 1
     }
 
-    galleryCursor.value = payload.nextCursor || null
+    if (carouselIndex.value > galleryItems.value.length - 1) {
+      carouselIndex.value = galleryItems.value.length - 1
+    }
+
+    const previewCount = reset ? INITIAL_PREVIEW_COUNT : LOAD_MORE_PREVIEW_COUNT
+    await hydratePreviews(nextItems, previewCount)
   } catch (err) {
-    await handleApiFailure(err, (message) => {
-      galleryError.value = message
-    })
+    if (!(await maybeReauth(err))) {
+      galleryError.value = normalizeUploadError(err)
+    }
   } finally {
     galleryLoading.value = false
   }
@@ -274,81 +550,164 @@ async function hydrateSession(nextSession) {
 
   try {
     const nextProfile = await withSessionRetry(() => fetchProfile(nextSession.user.id))
-    if (!nextProfile) {
-      throw new Error('Could not load profile')
-    }
+    if (!nextProfile) throw new Error('Could not load profile')
 
     profile.value = nextProfile
-
     if (!nextProfile.active) {
       authError.value = 'Your account is not currently invited to this shared gallery.'
-      authLoading.value = false
       return
     }
 
     await loadGallery({ reset: true })
   } catch (err) {
-    await handleApiFailure(err, (message) => {
-      authError.value = message
-    })
+    if (!(await maybeReauth(err))) {
+      authError.value = normalizeUploadError(err)
+    }
   } finally {
     authLoading.value = false
   }
 }
 
-function handleFileSelection(event) {
-  selectedFiles.value = Array.from(event.target.files || [])
+function addSelectedFiles(files) {
+  const next = Array.from(files || []).map((file, idx) => {
+    const mimeType = normalizedMime(file)
+    let error = ''
+    let status = 'queued'
+
+    if (!mimeType) {
+      status = 'failed'
+      error = 'Unsupported file type. Use JPEG, PNG, WEBP, HEIC, HEIF, MP4, or MOV.'
+    } else if (mimeType.startsWith('image/') && Number(file.size) > IMAGE_MAX_BYTES) {
+      status = 'failed'
+      error = 'Image exceeds 25 MB limit.'
+    } else if (mimeType.startsWith('video/') && Number(file.size) > VIDEO_MAX_BYTES) {
+      status = 'failed'
+      error = 'Video exceeds 250 MB limit.'
+    }
+
+    return {
+      id: `${file.name}-${file.size}-${Date.now()}-${idx}`,
+      file,
+      status,
+      progress: 0,
+      error,
+    }
+  })
+
+  queueItems.value = [...queueItems.value, ...next]
+  for (const row of next) {
+    void persistQueueItem(row)
+  }
+  uploadError.value = ''
+}
+
+function retryUpload(id) {
+  queueItems.value = queueItems.value.map((item) => {
+    if (item.id !== id) return item
+    const next = {
+      ...item,
+      status: 'queued',
+      progress: 0,
+      error: '',
+    }
+    void persistQueueItem(next)
+    return next
+  })
+}
+
+function removeQueueItem(id) {
+  queueItems.value = queueItems.value.filter((item) => item.id !== id)
+  void removeQueueItemFromStorage(id)
 }
 
 async function startUpload() {
-  if (!selectedFiles.value.length || !canLoadApp.value) return
+  if (uploadBusy.value || !canLoadApp.value) return
 
-  uploadInProgress.value = true
-  uploadResults.value = []
+  const candidates = queueItems.value.filter((item) => item.status === 'queued')
+  if (!candidates.length) return
 
-  for (const file of selectedFiles.value) {
-    const row = {
-      name: file.name,
-      size: file.size,
-      status: 'preparing',
-      error: '',
+  uploadBusy.value = true
+  uploadError.value = ''
+
+  for (const row of candidates) {
+    if (!isOnline.value) {
+      row.status = 'queued'
+      row.error = 'Waiting for internet connection.'
+      row.progress = 0
+      await persistQueueItem(row)
+      break
     }
 
-    uploadResults.value.push(row)
+    const file = row.file
+    const mimeType = normalizedMime(file)
+
+    if (!mimeType) {
+      row.status = 'failed'
+      row.error = 'Unsupported file type. Use JPEG, PNG, WEBP, HEIC, HEIF, MP4, or MOV.'
+      await persistQueueItem(row)
+      continue
+    }
 
     try {
-      const mimeType = file.type || guessMimeFromName(file.name)
-      if (!mimeType) {
-        throw new Error('Unsupported file type')
-      }
-
       row.status = 'requesting-ticket'
-      const ticket = await withSessionRetry(() => createUploadTicket({
+      row.progress = 10
+      row.error = ''
+      await persistQueueItem(row)
+
+      const ticket = await withRetries(() => withSessionRetry(() => createUploadTicket({
         filename: file.name,
         mimeType,
         bytes: file.size,
-      }))
+      })))
 
       row.status = 'uploading'
-      await uploadWithSignedTicket(ticket, file)
+      row.progress = 35
+      await persistQueueItem(row)
+      await withRetries(() => uploadWithSignedTicket(ticket, file))
 
       row.status = 'processing'
-      await withSessionRetry(() => completeUpload(ticket.mediaId))
+      row.progress = 80
+      await persistQueueItem(row)
+      await withRetries(() => withSessionRetry(() => completeUpload(ticket.mediaId)))
 
       row.status = 'published'
+      row.progress = 100
+      row.error = ''
+      await removeQueueItemFromStorage(row.id)
+      queueItems.value = queueItems.value.filter((item) => item.id !== row.id)
     } catch (err) {
-      row.status = 'failed'
+      row.status = isOnline.value ? 'failed' : 'queued'
+      row.progress = 0
       if (await maybeReauth(err)) {
-        row.error = 'Session expired. Please sign in again.'
+        row.error = 'Session expired. Please refresh this page.'
+        await persistQueueItem(row)
         break
       }
-      row.error = normalizeUploadError(err)
+      row.error = isOnline.value ? normalizeUploadError(err) : 'Waiting for internet connection.'
+      await persistQueueItem(row)
     }
   }
 
-  selectedFiles.value = []
-  uploadInProgress.value = false
-  await loadGallery({ reset: true })
+  uploadBusy.value = false
+}
+
+async function downloadMedia(item) {
+  if (!item) return
+
+  const mediaId = item.id
+  setDownloading(mediaId, true)
+  galleryError.value = ''
+
+  try {
+    const signed = await withSessionRetry(() => signMediaUrl(mediaId, 'original'))
+    triggerDownload(signed.signedUrl, item.original_filename)
+  } catch (err) {
+    if (!(await maybeReauth(err))) {
+      galleryError.value = normalizeUploadError(err)
+    }
+  } finally {
+    setDownloading(mediaId, false)
+  }
 }
 
 async function deleteMediaItem(item) {
@@ -357,17 +716,81 @@ async function deleteMediaItem(item) {
   const confirmed = window.confirm('Remove this media for everyone? This cannot be undone.')
   if (!confirmed) return
 
+  setDeleting(item.id, true)
+  galleryError.value = ''
+
   try {
     await withSessionRetry(() => removeMedia(item.id))
+
+    if (viewerOpen.value && activeItem.value?.id === item.id) {
+      viewerOpen.value = false
+      viewerUrl.value = ''
+    }
+
     await loadGallery({ reset: true })
   } catch (err) {
-    await handleApiFailure(err, (message) => {
-      galleryError.value = message
-    })
+    if (!(await maybeReauth(err))) {
+      galleryError.value = normalizeUploadError(err)
+    }
+  } finally {
+    setDeleting(item.id, false)
   }
 }
 
+async function hydrateViewerUrl() {
+  if (!viewerOpen.value || !activeItem.value) return
+
+  viewerLoading.value = true
+  viewerError.value = ''
+
+  try {
+    const signed = await withSessionRetry(() => signMediaUrl(activeItem.value.id, 'processed'))
+    viewerUrl.value = signed.signedUrl || ''
+  } catch (err) {
+    viewerUrl.value = ''
+    if (!(await maybeReauth(err))) {
+      viewerError.value = normalizeUploadError(err)
+    }
+  } finally {
+    viewerLoading.value = false
+  }
+}
+
+async function openViewerByIndex(index) {
+  viewerIndex.value = index
+  viewerOpen.value = true
+  await hydrateViewerUrl()
+}
+
+async function openViewerByItem(item) {
+  const index = galleryItems.value.findIndex((row) => row.id === item.id)
+  if (index < 0) return
+  await openViewerByIndex(index)
+}
+
+function closeViewer() {
+  viewerOpen.value = false
+  viewerUrl.value = ''
+  viewerError.value = ''
+}
+
+async function showNext() {
+  if (!galleryItems.value.length) return
+  viewerIndex.value = (viewerIndex.value + 1) % galleryItems.value.length
+  await hydrateViewerUrl()
+}
+
+async function showPrev() {
+  if (!galleryItems.value.length) return
+  viewerIndex.value = (viewerIndex.value - 1 + galleryItems.value.length) % galleryItems.value.length
+  await hydrateViewerUrl()
+}
+
 onMounted(async () => {
+  window.addEventListener('online', onOnline)
+  window.addEventListener('offline', onOffline)
+  await restoreUploadQueue()
+
   if (!hasSupabaseConfig || !supabase) {
     authLoading.value = false
     return
@@ -378,16 +801,35 @@ onMounted(async () => {
     profile.value = { active: true, role: 'admin', email: 'group@friends-weekend.local' }
     authLoading.value = false
     await loadGallery({ reset: true })
+    startLiveSync()
+    if (isOnline.value && queueItems.value.some((item) => item.status === 'queued')) {
+      void startUpload()
+    }
     return
   }
 
   const { data } = await supabase.auth.getSession()
   await hydrateSession(data.session)
+  if (isInvited.value) startLiveSync()
+  else stopLiveSync()
+  if (isOnline.value && isInvited.value && queueItems.value.some((item) => item.status === 'queued')) {
+    void startUpload()
+  }
 
-  const subscription = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
-    await hydrateSession(nextSession)
+  const subscription = supabase.auth.onAuthStateChange(async (event, nextSession) => {
     if (!nextSession?.user) {
-      goToLogin()
+      stopLiveSync()
+      await hydrateSession(nextSession)
+      return
+    }
+
+    // Keep session in sync without reloading the gallery on every token refresh.
+    session.value = nextSession
+
+    if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+      await hydrateSession(nextSession)
+      if (isInvited.value) startLiveSync()
+      else stopLiveSync()
     }
   })
 
@@ -395,7 +837,10 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('online', onOnline)
+  window.removeEventListener('offline', onOffline)
   stopCarouselTimer()
+  stopLiveSync()
   if (authSubscription) {
     authSubscription.unsubscribe()
     authSubscription = null
@@ -406,13 +851,13 @@ watch(
   () => galleryItems.value.length,
   (length) => {
     if (!length) {
-      activeIndex.value = 0
+      carouselIndex.value = 0
       stopCarouselTimer()
       return
     }
 
-    if (activeIndex.value >= length) {
-      activeIndex.value = 0
+    if (carouselIndex.value >= length) {
+      carouselIndex.value = 0
     }
 
     startCarouselTimer()
@@ -424,302 +869,227 @@ watch(
   <div class="photos-page">
     <HeroHeader show-back />
 
-    <main class="photos-body">
-      <section v-if="!hasSupabaseConfig" class="card warning">
-        <h2>Supabase Not Configured</h2>
-        <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in your environment before using photos.</p>
+    <main class="photos-content">
+      <section v-if="!hasSupabaseConfig" class="panel warning-panel">
+        <h2>Supabase not configured</h2>
+        <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` before using the gallery.</p>
       </section>
 
-      <section v-else-if="authLoading" class="card">
-        <div class="spinner"></div>
-        <p>Loading shared photos…</p>
+      <section v-else-if="authLoading" class="panel centered">
+        <p>Loading shared gallery…</p>
       </section>
 
-      <section v-else-if="!isSignedIn" class="card auth-card">
-        <h2>Sign In Required</h2>
-        <p>Your session ended. Continue from the login page.</p>
-        <button class="primary-btn" type="button" @click="goToLogin">Go To Login</button>
+      <section v-else-if="!isSignedIn" class="panel centered">
+        <h2>Checking session…</h2>
+        <p>Waiting for global authentication.</p>
       </section>
 
-      <section v-else-if="!isInvited" class="card warning">
-        <h2>Invite Required</h2>
+      <section v-else-if="!isInvited" class="panel warning-panel">
+        <h2>Invite required</h2>
         <p>{{ authError || 'Your account is not currently approved for this gallery.' }}</p>
-        <button class="secondary-btn" type="button" @click="signOut">Sign out</button>
+        <button class="btn soft" type="button" @click="signOut">Sign out</button>
       </section>
 
       <template v-else>
-        <section class="carousel-shell">
-          <header class="gallery-head">
+        <section class="panel gallery-panel">
+          <header class="gallery-header">
             <div>
-              <h2>Weekend Gallery</h2>
-              <p class="muted">Signed in as <strong>{{ userEmail }}</strong></p>
+              <h2>Shared media</h2>
             </div>
-            <button class="secondary-btn" type="button" @click="loadGallery({ reset: true })" :disabled="galleryLoading">
-              Refresh
-            </button>
           </header>
 
-          <div v-if="activeItem" class="carousel-frame">
-            <img
-              v-if="activeItem.media_type === 'image' && activeItem.preview_url"
-              class="carousel-media"
-              :src="activeItem.preview_url"
-              :alt="activeItem.original_filename"
-            />
-            <video
-              v-else-if="activeItem.media_type === 'video' && activeItem.preview_url"
-              class="carousel-media"
-              :src="activeItem.preview_url"
-              controls
-              preload="metadata"
-              playsinline
-            ></video>
-            <div v-else class="carousel-placeholder">Preview unavailable</div>
+          <ErrorState v-if="galleryError && !galleryItems.length" :message="galleryError"
+            @retry="loadGallery({ reset: true })" />
 
-            <div class="carousel-overlay">
-              <div class="uploader-chip">
-                <span class="uploader-avatar" :style="{ background: avatarColor(activeItem.owner_email) }">
-                  {{ initialsFromEmail(activeItem.owner_email) }}
-                </span>
-                <div class="uploader-text">
-                  <strong>{{ formatUploader(activeItem.owner_email) }}</strong>
-                  <small>{{ mediaLabel(activeItem) }} · {{ prettyDate(activeItem.published_at) }}</small>
-                </div>
-              </div>
-              <strong class="carousel-title">{{ activeItem.original_filename }}</strong>
-            </div>
+          <LoadingState v-else-if="galleryLoading && !galleryItems.length" />
 
-            <button class="carousel-nav left" type="button" @click="showPrev">Prev</button>
-            <button class="carousel-nav right" type="button" @click="showNext">Next</button>
-          </div>
+          <EmptyState v-else-if="!galleryItems.length" @upload-click="uploadPanelOpen = true" />
 
-          <div v-else class="carousel-empty">
-            <strong>No media yet</strong>
-            <p>Upload photos or videos and they will appear here.</p>
-          </div>
+          <template v-else>
+            <p v-if="galleryError" class="error-text">{{ galleryError }}</p>
 
-          <p v-if="galleryError" class="error-text">{{ galleryError }}</p>
-          <p v-if="galleryLoading && !galleryItems.length" class="muted">Loading gallery…</p>
-        </section>
+            <article v-if="featuredItem" class="carousel-frame">
+              <button class="carousel-media-btn" type="button" @click="openViewerByIndex(carouselIndex)">
+                <img
+v-if="featuredItem.media_type === 'image' && featuredItem.preview_url" class="carousel-media"
+                  :src="featuredItem.preview_url" :alt="featuredItem.original_filename" />
+                <video
+v-else-if="featuredItem.media_type === 'video' && featuredItem.preview_url"
+                  class="carousel-media" :src="featuredItem.preview_url" muted playsinline preload="metadata"></video>
+                <span v-else class="carousel-empty">Preview unavailable</span>
+              </button>
 
-        <section class="card">
-          <h3>All Uploads</h3>
-          <div v-if="galleryItems.length" class="gallery-grid">
-            <article
-              v-for="(item, index) in galleryItems"
-              :key="item.id"
-              class="gallery-card"
-              :class="{ active: index === activeIndex }"
-              @click="setActiveIndex(index)"
-            >
-              <img
-                v-if="item.media_type === 'image' && item.preview_url"
-                :src="item.preview_url"
-                :alt="item.original_filename"
-                loading="lazy"
-              />
-              <video
-                v-else-if="item.media_type === 'video' && item.preview_url"
-                :src="item.preview_url"
-                controls
-                preload="metadata"
-                playsinline
-              ></video>
-              <div v-else class="placeholder">Preview unavailable</div>
-
-              <span class="tile-badge" :style="{ background: avatarColor(item.owner_email) }">
-                {{ initialsFromEmail(item.owner_email) }}
-              </span>
-              <span v-if="item.media_type === 'video'" class="tile-type">Video</span>
-
-              <div class="gallery-meta">
-                <strong>{{ item.original_filename }}</strong>
-                <small>{{ prettyDate(item.published_at) }}</small>
-                <small>By {{ formatUploader(item.owner_email) }}</small>
-                <small v-if="item.captured_at">Captured {{ prettyDate(item.captured_at) }}</small>
+              <div class="carousel-overlay">
+                <p>{{ formatUploader(featuredItem.owner_email) }} · {{ prettyDate(featuredItem.published_at) }}</p>
               </div>
 
               <button
-                v-if="canRemove(item)"
-                class="danger-btn"
+v-if="hasCarouselNav" class="carousel-nav left"
                 type="button"
-                @click.stop="deleteMediaItem(item)"
+aria-label="Show previous item"
+                @click="showCarouselPrev"
               >
-                Remove
+                ‹
+              </button>
+              <button v-if="hasCarouselNav" class="carousel-nav right" type="button" aria-label="Show next item"
+                @click="showCarouselNext">
+                ›
               </button>
             </article>
-          </div>
 
-          <p v-else-if="!galleryLoading" class="muted">No photos or videos yet.</p>
+            <div class="gallery-grid">
+              <button class="upload-card" type="button" @click="uploadPanelOpen = true">
+                <span class="upload-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
+                    <path d="M12 4l5 5h-3v6h-4V9H7l5-5zm-7 13h14v3H5v-3z" fill="currentColor" />
+                  </svg>
+                </span>
+                <strong>Upload media</strong>
+                <small>Share photos and videos</small>
+              </button>
 
-          <button
-            v-if="galleryCursor"
-            class="secondary-btn load-more"
-            type="button"
-            :disabled="galleryLoading"
-            @click="loadGallery()"
-          >
-            {{ galleryLoading ? 'Loading…' : 'Load More' }}
-          </button>
-        </section>
+              <MediaCard v-for="item in galleryItems" :key="item.id" :item="item"
+                :downloading="Boolean(downloadingById[item.id])" :deleting="Boolean(deletingById[item.id])"
+                :can-remove="canRemove(item)" @view="focusCarouselByItem" @download="downloadMedia"
+                @remove="deleteMediaItem" />
+            </div>
 
-        <section class="card">
-          <h3>Upload Your Photos Or Videos</h3>
-          <p class="muted">
-            Photos up to 25 MB, videos up to 250 MB. Uploads auto-publish after processing.
-            Only media captured during {{ captureWindowLabel }} is accepted.
-          </p>
-          <input
-            class="file-input"
-            type="file"
-            multiple
-            accept="image/*,video/mp4,video/quicktime"
-            @change="handleFileSelection"
-          />
-          <div class="upload-actions">
-            <span>{{ selectedFiles.length }} file(s) selected</span>
-            <button class="primary-btn" type="button" :disabled="uploadInProgress || !selectedFiles.length" @click="startUpload">
-              {{ uploadInProgress ? 'Uploading…' : 'Upload Selected' }}
+            <button v-if="hasMore" class="btn soft load-more" type="button" :disabled="galleryLoading"
+              @click="loadGallery()">
+              {{ galleryLoading ? 'Loading…' : 'Load more' }}
             </button>
-          </div>
-
-          <ul v-if="uploadResults.length" class="upload-results">
-            <li v-for="row in uploadResults" :key="`${row.name}-${row.size}`">
-              <div>
-                <strong>{{ row.name }}</strong>
-                <small>{{ prettyBytes(row.size) }}</small>
-              </div>
-              <span :class="['status-chip', row.status]">{{ row.status }}</span>
-              <p v-if="row.error" class="error-text">{{ row.error }}</p>
-            </li>
-          </ul>
+          </template>
         </section>
       </template>
     </main>
+
+    <UploadPanel :open="uploadPanelOpen" :queue-items="queueItems" :selected-count="selectedCount"
+      :upload-busy="uploadBusy" :upload-error="uploadError" :capture-window-label="captureWindowLabel"
+      @close="uploadPanelOpen = false" @files-selected="addSelectedFiles" @upload="startUpload" @retry="retryUpload"
+      @remove="removeQueueItem" />
+
+    <FullScreenViewer :open="viewerOpen" :item="activeItem" :index="viewerIndex" :total="galleryItems.length"
+      :media-url="viewerUrl" :loading="viewerLoading" :error="viewerError" :can-delete="canRemove(activeItem)"
+      :downloading="Boolean(activeItem && downloadingById[activeItem.id])"
+      :deleting="Boolean(activeItem && deletingById[activeItem.id])" @close="closeViewer" @next="showNext"
+      @prev="showPrev" @download="downloadMedia" @delete="deleteMediaItem" />
   </div>
 </template>
 
 <style scoped>
 .photos-page {
   min-height: 100vh;
-  background: transparent;
-  color: #1A3329;
-  font-family: system-ui, 'Segoe UI', sans-serif;
+  color: var(--warm-text-dark);
+  font-family: var(--font-sans);
 }
 
-.photos-body {
+.photos-content {
   max-width: 1080px;
   margin: 0 auto;
-  padding: 72px 20px 64px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  padding: 72px 16px calc(88px + env(safe-area-inset-bottom, 0px));
+  display: grid;
+  gap: 14px;
+  touch-action: pan-y;
 }
 
-.card {
-  background: #fff;
-  border: 1px solid #c8d8d0;
+.panel {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(92, 138, 150, 0.3);
   border-radius: 14px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
-  padding: 18px;
+  padding: 16px;
+  box-shadow: 0 6px 18px rgba(28, 47, 54, 0.08);
 }
 
-.warning {
-  border-color: #d48d37;
-  background: #fff7e9;
+.warning-panel {
+  border-color: rgba(196, 160, 40, 0.55);
+  background: #fff9ed;
 }
 
-.auth-card {
+.centered {
   text-align: center;
 }
 
-.carousel-shell {
-  position: relative;
+.gallery-panel {
+  display: grid;
+  gap: 12px;
 }
 
-.gallery-head {
+.gallery-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 12px;
+  align-items: end;
+  gap: 10px;
 }
 
-h2,
-h3 {
-  margin: 0 0 8px;
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
-p {
-  margin: 0;
-}
-
-.muted {
-  color: #4e6b5f;
-  font-size: 13px;
-}
-
-.error-text {
-  color: #b94040;
-  font-size: 13px;
-  margin-top: 8px;
-}
-
-.primary-btn,
-.secondary-btn,
-.danger-btn {
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 9px 12px;
-  font-size: 13px;
-  font-weight: 600;
+.upload-card {
+  border: 1px dashed rgba(92, 138, 150, 0.55);
+  border-radius: 12px;
+  background: #f4f8fa;
+  min-height: 248px;
+  padding: 12px;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--forest);
   cursor: pointer;
 }
 
-.primary-btn {
-  background: #2E6352;
-  color: #fff;
+.upload-card strong {
+  font-size: 0.92rem;
 }
 
-.primary-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.upload-card small {
+  font-size: 0.78rem;
+  color: var(--warm-brown-muted);
 }
 
-.secondary-btn {
-  background: #f0f6f4;
-  border-color: #c8d8d0;
-  color: #1A3329;
-}
-
-.danger-btn {
-  background: #fff3f3;
-  border-color: #d98686;
-  color: #8a1f1f;
+.upload-card-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+  background: rgba(92, 138, 150, 0.16);
 }
 
 .carousel-frame {
   position: relative;
-  min-height: 420px;
-  border-radius: 18px;
+  border-radius: 14px;
   overflow: hidden;
-  background: linear-gradient(135deg, #0f2a22, #285647);
-  box-shadow: 0 16px 32px rgba(16, 34, 28, 0.25);
+  background: linear-gradient(130deg, #2b4b55, #37535f);
+  border: 1px solid rgba(92, 138, 150, 0.28);
+  box-shadow: 0 10px 24px rgba(28, 47, 54, 0.16);
+}
+
+.carousel-media-btn {
+  border: 0;
+  padding: 0;
+  width: 100%;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
 }
 
 .carousel-media {
   width: 100%;
-  height: 420px;
-  object-fit: cover;
+  height: 320px;
   display: block;
+  object-fit: cover;
 }
 
-.carousel-placeholder {
-  min-height: 420px;
+.carousel-empty {
+  height: 320px;
+  color: rgba(255, 255, 255, 0.95);
   display: grid;
   place-items: center;
-  color: #f0f6f4;
-  font-size: 14px;
 }
 
 .carousel-overlay {
@@ -727,306 +1097,119 @@ p {
   left: 0;
   right: 0;
   bottom: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 12px;
-  padding: 14px;
-  background: linear-gradient(to top, rgba(8, 17, 14, 0.72), rgba(8, 17, 14, 0));
-}
-
-.uploader-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.uploader-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
-}
-
-.uploader-text {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
+  padding: 12px 14px;
+  background: linear-gradient(to top, rgba(11, 20, 24, 0.72), rgba(11, 20, 24, 0));
   color: #fff;
 }
 
-.uploader-text strong,
-.carousel-title {
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-}
-
-.uploader-text small {
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 11px;
-}
-
-.carousel-title {
-  color: #fff;
-  max-width: 48%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.carousel-overlay p {
+  font-size: 0.78rem;
+  opacity: 0.9;
 }
 
 .carousel-nav {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 999px;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  background: rgba(255, 255, 255, 0.84);
-  color: #1a3329;
+  background: rgba(255, 255, 255, 0.86);
+  color: #23383f;
+  font-size: 1.4rem;
+  line-height: 1;
   cursor: pointer;
 }
 
 .carousel-nav.left {
-  left: 12px;
+  left: 10px;
 }
 
 .carousel-nav.right {
-  right: 12px;
+  right: 10px;
 }
 
-.carousel-empty {
-  border-radius: 18px;
-  border: 1px dashed #9cb7ab;
-  min-height: 220px;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  padding: 16px;
-  color: #3f5f53;
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
 }
 
-.gallery-grid {
-  margin-top: 12px;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+h1 {
+  font-size: 1.35rem;
 }
 
-.gallery-card {
-  position: relative;
-  border: 1px solid #dbe7e1;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #fff;
-  display: flex;
-  flex-direction: column;
+h2 {
+  font-size: 1.1rem;
+}
+
+.muted {
+  color: var(--warm-brown-muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.error-text {
+  color: var(--red-error);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.btn {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  min-height: 44px;
+  padding: 10px 14px;
+  font-weight: 650;
+  font-size: 0.84rem;
   cursor: pointer;
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.gallery-card:hover {
-  transform: translateY(-2px);
-  border-color: #8eb5a7;
-  box-shadow: 0 8px 16px rgba(20, 51, 42, 0.14);
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
-.gallery-card.active {
-  border-color: #2e6352;
-  box-shadow: 0 0 0 2px rgba(46, 99, 82, 0.2);
-}
-
-.gallery-card img,
-.gallery-card video {
-  width: 100%;
-  height: 180px;
-  object-fit: cover;
-  background: #f3f7f5;
-}
-
-.gallery-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px;
-}
-
-.tile-badge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
+.btn.primary {
+  background: var(--forest);
   color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
-.tile-type {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: rgba(15, 42, 34, 0.78);
-  color: #fff;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  padding: 4px 7px;
-}
-
-.gallery-meta small,
-.upload-results small {
-  color: #4e6b5f;
-  font-size: 12px;
-}
-
-.placeholder {
-  height: 180px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f3f7f5;
-  color: #4e6b5f;
-  font-size: 13px;
+.btn.soft {
+  border-color: rgba(92, 138, 150, 0.35);
+  background: #f4f8fa;
+  color: var(--forest);
 }
 
 .load-more {
-  margin-top: 12px;
+  justify-self: center;
 }
 
-.file-input {
-  margin-top: 8px;
-}
+@media (min-width: 700px) {
+  .photos-content {
+    padding-inline: 20px;
+  }
 
-.upload-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 12px;
-  font-size: 13px;
-  color: #4e6b5f;
-}
+  .carousel-media,
+  .carousel-empty {
+    height: 420px;
+  }
 
-.upload-results {
-  list-style: none;
-  margin: 14px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.upload-results li {
-  border: 1px solid #e4ece8;
-  border-radius: 10px;
-  padding: 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-
-.status-chip {
-  display: inline-flex;
-  border-radius: 999px;
-  padding: 3px 9px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  border: 1px solid #c8d8d0;
-}
-
-.status-chip.published {
-  background: #e4f4ef;
-  border-color: #a3d0c2;
-}
-
-.status-chip.failed {
-  background: #ffefef;
-  border-color: #e4aaaa;
-}
-
-.status-chip.processing,
-.status-chip.uploading,
-.status-chip.requesting-ticket,
-.status-chip.preparing {
-  background: #f4f6ff;
-  border-color: #c6cfee;
-}
-
-.spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid #c8d8d0;
-  border-top-color: #2E6352;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin-bottom: 8px;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+  .gallery-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 760px) {
-  .gallery-head {
-    flex-direction: column;
-    align-items: flex-start;
+@media (min-width: 980px) {
+  .photos-content {
+    padding-top: 86px;
   }
 
-  .carousel-frame,
-  .carousel-media {
-    min-height: 320px;
-    height: 320px;
-  }
-
-  .carousel-overlay {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .carousel-title {
-    max-width: 100%;
-  }
-
-  .carousel-nav {
-    top: auto;
-    bottom: 10px;
-    transform: none;
-  }
-
-  .carousel-nav.left {
-    left: 10px;
-  }
-
-  .carousel-nav.right {
-    right: 10px;
-  }
-
-  .upload-results li {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .upload-actions {
-    flex-direction: column;
-    align-items: flex-start;
+  .gallery-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 </style>

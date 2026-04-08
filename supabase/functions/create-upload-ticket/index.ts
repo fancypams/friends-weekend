@@ -100,15 +100,6 @@ Deno.serve(async (req) => {
     return serverError('Failed to create media record', insertErr.message)
   }
 
-  const { data: signedUpload, error: signedErr } = await auth.admin.storage
-    .from(BUCKET)
-    .createSignedUploadUrl(objectPath)
-
-  if (signedErr || !signedUpload) {
-    await auth.admin.from('media_assets').delete().eq('id', mediaId)
-    return serverError('Failed to create upload URL', signedErr?.message)
-  }
-
   await audit(auth.admin, {
     actorId: auth.user.id,
     action: 'media.upload_ticket_created',
@@ -126,9 +117,8 @@ Deno.serve(async (req) => {
     mediaId,
     objectPath,
     mediaType,
-    uploadPath: signedUpload.path,
-    uploadToken: signedUpload.token,
-    uploadUrl: signedUpload.signedUrl,
-    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    bucket: BUCKET,
+    uploadProtocol: 'tus',
+    tusEndpoint: '/storage/v1/upload/resumable',
   })
 })
