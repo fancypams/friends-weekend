@@ -33,6 +33,13 @@ const showPhotos = !import.meta.env.PROD
         </div>
       </router-link>
 
+      <router-link to="/groceries" class="pennant-card" style="--card-bg: var(--terracotta)">
+        <div class="pennant-text">
+          <span class="pennant-title">Groceries</span>
+          <span class="pennant-sub">Add to the shopping list</span>
+        </div>
+      </router-link>
+
       <router-link v-if="showPhotos" to="/photos" class="pennant-card" style="--card-bg: var(--gold)">
         <div class="pennant-text">
           <span class="pennant-title">Photos</span>
@@ -58,7 +65,7 @@ const showPhotos = !import.meta.env.PROD
   grid-template-columns: repeat(1, 1fr);
   gap: 20px;
   width: 100%;
-  max-width: 760px;
+  max-width: 1080px;
   margin: 40px auto;
   padding: 0 24px 64px;
 }

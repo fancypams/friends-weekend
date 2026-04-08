@@ -389,7 +389,7 @@ onUnmounted(() => {
 
 .login-card {
   background: var(--bg-white);
-  border-radius: 10px;
+  border-radius: 0 0 6px 6px;
   box-shadow: 0 10px 30px rgba(28, 40, 36, 0.15);
   border-top: 4px solid var(--green-primary);
   padding: 24px 22px 28px;

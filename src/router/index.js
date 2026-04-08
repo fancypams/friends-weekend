@@ -4,6 +4,7 @@ import BasicsPage from '../pages/BasicsPage.vue'
 import ItineraryPage from '../components/Itinerary.vue'
 import PhotosPage from '../pages/PhotosPage.vue'
 import PreTripPage from '../pages/PreTripPage.vue'
+import GroceriesPage from '../pages/GroceriesPage.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import { bypassAuth, hasSupabaseConfig } from '../lib/supabaseClient'
 import { getAuthState, globalSignOut, setPostLoginRedirect } from '../lib/authAccess'
@@ -52,6 +53,7 @@ const router = createRouter({
     { path: '/itinerary', component: ItineraryPage, meta: { requiresAuth: true } },
     { path: '/photos', component: PhotosPage, meta: { requiresAuth: true } },
     { path: '/pre-trip', component: PreTripPage, meta: { requiresAuth: true } },
+    { path: '/groceries', component: GroceriesPage, meta: { requiresAuth: true } },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })

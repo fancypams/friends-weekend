@@ -41,3 +41,9 @@ verify_jwt = true
 
 [functions.process-media]
 verify_jwt = false
+
+[functions.append-grocery]
+verify_jwt = false
+
+[functions.delete-grocery]
+verify_jwt = false

@@ -160,16 +160,16 @@ const active = computed(() => categories.value[activeCategory.value] ?? null)
 }
 
 .pretrip-body {
-  max-width: 100%;
+  max-width: 1080px;
   margin: 15px auto;
-  padding: 60px 100px 80px;
+  padding: 40px 24px 80px;
 }
 
 /* ── Layout ── */
 .pretrip-layout {
   display: grid;
   grid-template-columns: 140px 1fr;
-  gap: 0 48px;
+  gap: 0 5px;
   align-items: start;
 }
 
@@ -179,9 +179,9 @@ const active = computed(() => categories.value[activeCategory.value] ?? null)
   flex-direction: column;
   align-items: flex-end;
   gap: 0;
-  padding-top: 8px;
   position: sticky;
   top: 80px;
+  width: 95px;
 }
 
 .cat-btn {
@@ -356,6 +356,9 @@ const active = computed(() => categories.value[activeCategory.value] ?? null)
   .item-extras {
     width: 100%;
     justify-content: flex-start;
+  }
+  .category-nav {
+    width: 90px;
   }
 }
 </style>

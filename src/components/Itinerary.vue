@@ -156,16 +156,16 @@ onMounted(async () => {
 
 /* ── Body ── */
 .itinerary-body {
-  max-width: 100%;
+  max-width: 1080px;
   margin: 15px auto;
-  padding: 60px 100px 80px;
+  padding: 40px 24px 80px;
 }
 
 /* ── Two-column layout ── */
 .itinerary-layout {
   display: grid;
   grid-template-columns: 140px 1fr;
-  gap: 0 48px;
+  gap: 0 5px;
   align-items: start;
 }
 
@@ -175,9 +175,9 @@ onMounted(async () => {
   flex-direction: column;
   align-items: flex-end;
   gap: 0;
-  padding-top: 8px;
   position: sticky;
   top: 80px;
+  width: 95px;
 }
 
 .day-btn {
@@ -323,13 +323,16 @@ onMounted(async () => {
   .itinerary-body {
     padding: 0 10px 60px;
   }
-.itinerary-layout {
+  .itinerary-layout {
     grid-template-columns: 90px 1fr;
     gap: 0 24px;
   }
   .day-btn {
     font-size: 12px;
     padding: 12px 0;
+  }
+  .day-nav {
+    width: 90px;
   }
 }
 </style>
