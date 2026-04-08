@@ -67,6 +67,7 @@ router.beforeEach(async (to) => {
 
   const needsAuth = to.matched.some((record) => record.meta.requiresAuth)
   const isLogin = to.path === '/login'
+  const forceLogin = to.query.reauth === '1'
 
   try {
     const state = await getAuthState()
@@ -89,6 +90,10 @@ router.beforeEach(async (to) => {
         }
       }
 
+      return true
+    }
+
+    if (isLogin && forceLogin) {
       return true
     }
 

@@ -148,7 +148,7 @@ async function handleApiFailure(err, setMessage) {
 function goToLogin() {
   router.replace({
     path: '/login',
-    query: { redirect: '/photos' },
+    query: { redirect: '/photos', reauth: '1' },
   })
 }
 

@@ -1,9 +1,30 @@
-import { bypassAuth, supabase, supabaseFunctionUrl } from './supabaseClient'
+import { bypassAuth, supabase, supabaseAnonKey, supabaseFunctionUrl } from './supabaseClient'
+
+const SESSION_TIMEOUT_MS = 12000
+const FUNCTION_TIMEOUT_MS = 30000
+
+async function withTimeout(factory, timeoutMs, message) {
+  let timer = null
+  try {
+    return await Promise.race([
+      factory(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 async function getValidSession() {
   if (!supabase) return null
 
-  const { data, error } = await supabase.auth.getSession()
+  const { data, error } = await withTimeout(
+    () => supabase.auth.getSession(),
+    SESSION_TIMEOUT_MS,
+    'Session check timed out. Please retry.',
+  )
   if (error) throw error
 
   let session = data.session ?? null
@@ -14,7 +35,11 @@ async function getValidSession() {
   const expiresSoon = !expiresAt || expiresAt <= now + 60
 
   if (expiresSoon) {
-    const refreshed = await supabase.auth.refreshSession()
+    const refreshed = await withTimeout(
+      () => supabase.auth.refreshSession(),
+      SESSION_TIMEOUT_MS,
+      'Session refresh timed out. Please retry.',
+    )
     if (refreshed.error) throw refreshed.error
     session = refreshed.data.session ?? null
   }
@@ -29,6 +54,7 @@ async function authHeaders() {
 
   if (bypassAuth) {
     return {
+      apikey: supabaseAnonKey,
       'Content-Type': 'application/json',
     }
   }
@@ -41,6 +67,7 @@ async function authHeaders() {
 
   return {
     Authorization: `Bearer ${token}`,
+    apikey: supabaseAnonKey,
     'Content-Type': 'application/json',
   }
 }
@@ -71,14 +98,29 @@ async function parseResponse(res) {
 
 async function callFunction(path, { method = 'GET', body } = {}) {
   const headers = await authHeaders()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), FUNCTION_TIMEOUT_MS)
 
-  const res = await fetch(supabaseFunctionUrl(path), {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  try {
+    const res = await fetch(supabaseFunctionUrl(path), {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    })
 
-  return parseResponse(res)
+    return parseResponse(res)
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      const timeoutError = new Error('Request timed out. Please try again.')
+      timeoutError.code = 'request_timeout'
+      timeoutError.status = 408
+      throw timeoutError
+    }
+    throw err
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 export async function fetchProfile(userId) {
