@@ -247,7 +247,7 @@ onBeforeUnmount(() => {
   bottom: 0;
   right: 0;
   width: 75%;
-  z-index: 3;
+  z-index: 2;
   pointer-events: none;
   user-select: none;
   margin: 0 -175px -70px;
@@ -257,7 +257,7 @@ onBeforeUnmount(() => {
 /* ── Content ── */
 .hero-content {
   position: relative;
-  z-index: 2;
+  z-index: 4;
   padding: 20px 105px;
   display: flex;
   flex-direction: column;
@@ -294,6 +294,8 @@ onBeforeUnmount(() => {
   gap: 6px;
   flex-wrap: wrap;
   align-self: start;
+  position: relative;
+  z-index: 5;
 }
 
 .count-item {
@@ -328,18 +330,18 @@ onBeforeUnmount(() => {
 
 @media (max-width: 768px) {
   .hero-content {
-    padding: 16px 24px 52px;
+    padding: 16px 24px 64px;
   }
 
   .clouds-back {
-    width: 100%;
+    width: 92%;
     right: 0;
-    margin: 15px;
+    margin: 10px 4px 0 0;
   }
 
   .clouds-front {
-    width: 60%;
-    margin: 0 0 30px;
+    width: 52%;
+    margin: 0 -24px 22px 0;
   }
 
   .hero-city {
@@ -351,7 +353,12 @@ onBeforeUnmount(() => {
   }
 
   .countdown-badge {
-    margin: 0 0 -30px;
+    margin: 2px 0 0;
+    padding: 8px 10px;
+    border-radius: 999px;
+    background: rgba(205, 225, 230, 0.78);
+    border: 1px solid rgba(92, 138, 150, 0.24);
+    backdrop-filter: blur(2px);
   }
 
   .count-value {
