@@ -140,7 +140,7 @@ function clearAuthErrorFromUrl() {
   const redirect = normalizeRedirect(route.query.redirect)
   const query = redirect !== '/' ? `?redirect=${encodeURIComponent(redirect)}` : ''
   const cleanUrl = `${window.location.origin}${window.location.pathname}#/login${query}`
-  window.history.replaceState({}, '', cleanUrl)
+  window.history.replaceState(window.history.state, '', cleanUrl)
 }
 
 function isInviteMissError(err) {
