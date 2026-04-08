@@ -1,14 +1,22 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import HeroHeader from '../components/HeroHeader.vue'
 
 const SHEET_ID = '10Vb7iKPjZC2THOPiMf50MtKMM5K3LQ70VTVdBCuSdlo'
 const SHEET_NAME = 'Seattle Data'
 
+const CATEGORY_COLORS = [
+  'var(--deep-sky)',
+  'var(--steel-sky)',
+  'var(--green-primary)',
+  'var(--terracotta)',
+  'var(--gold)',
+]
+
 const loading = ref(true)
 const errorMsg = ref(null)
 const categories = ref([])
-const activeCategory = ref(0)
+const openCategories = ref(new Set([0]))
 
 function cellStr(row, col) {
   const c = row?.c?.[col]
@@ -84,7 +92,12 @@ onMounted(async () => {
   loading.value = false
 })
 
-const active = computed(() => categories.value[activeCategory.value] ?? null)
+function toggleCategory(i) {
+  const next = new Set(openCategories.value)
+  if (next.has(i)) next.delete(i)
+  else next.add(i)
+  openCategories.value = next
+}
 </script>
 
 <template>
@@ -102,49 +115,56 @@ const active = computed(() => categories.value[activeCategory.value] ?? null)
       </div>
 
       <template v-else>
-        <div class="pretrip-layout">
-          <nav class="category-nav">
-            <button
-              v-for="(cat, i) in categories"
-              :key="i"
-              :class="['cat-btn', { active: activeCategory === i }]"
-              @click="activeCategory = i"
-            >
-              {{ cat.label }}
+        <div class="accordion">
+          <div
+            v-for="(cat, i) in categories"
+            :key="i"
+            class="accordion-item"
+            :class="{ open: openCategories.has(i) }"
+            :style="`--cat-color: ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}`"
+          >
+            <button class="accordion-header" @click="toggleCategory(i)">
+              <div class="accordion-text">
+                <span class="accordion-label">{{ cat.label }}</span>
+                <span class="accordion-sub">{{ cat.fields.map(f => f.name).filter(Boolean).join(' · ') }}</span>
+              </div>
+              <span class="accordion-count">{{ cat.items.length }}</span>
+              <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
-          </nav>
 
-          <section v-if="active" class="item-list">
-            <div v-if="active.items.length === 0" class="empty-msg">
-              Nothing here yet — check back soon!
-            </div>
+            <div class="accordion-body">
+              <div class="item-list">
+                <div v-if="cat.items.length === 0" class="empty-msg">
+                  Nothing here yet — check back soon!
+                </div>
 
-            <div
-              v-for="(values, i) in active.items"
-              :key="i"
-              class="item-row"
-            >
-              <!-- First field: always the primary name -->
-              <span class="item-title">{{ values[0] }}</span>
-
-              <!-- Remaining fields: link or badge -->
-              <div class="item-extras">
-                <template v-for="(val, fi) in values.slice(1)" :key="fi">
-                  <a
-                    v-if="val && isUrl(val)"
-                    :href="val"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="item-link"
-                    :aria-label="`${values[0]} link`"
-                  >
-                    {{ active.fields[fi + 1]?.name || 'Link' }} ↗
-                  </a>
-                  <span v-else-if="val" class="genre-badge">{{ val }}</span>
-                </template>
+                <div
+                  v-for="(values, ri) in cat.items"
+                  :key="ri"
+                  class="item-row"
+                >
+                  <span class="item-title">{{ values[0] }}</span>
+                  <div class="item-extras">
+                    <template v-for="(val, fi) in values.slice(1)" :key="fi">
+                      <a
+                        v-if="val && isUrl(val)"
+                        :href="val"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="item-link"
+                        :aria-label="`${values[0]} link`"
+                      >
+                        {{ cat.fields[fi + 1]?.name || 'Link' }} ↗
+                      </a>
+                      <span v-else-if="val" class="genre-badge">{{ val }}</span>
+                    </template>
+                  </div>
+                </div>
               </div>
             </div>
-          </section>
+          </div>
         </div>
       </template>
     </main>
@@ -165,66 +185,112 @@ const active = computed(() => categories.value[activeCategory.value] ?? null)
   padding: 40px 24px 80px;
 }
 
-/* ── Layout ── */
-.pretrip-layout {
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: 0 5px;
-  align-items: start;
-}
-
-/* ── Category Nav ── */
-.category-nav {
+/* ── Accordion ── */
+.accordion {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 0;
-  position: sticky;
-  top: 80px;
-  width: 95px;
+  gap: 8px;
 }
 
-.cat-btn {
-  display: block;
+.accordion-item {
+  background: var(--bg-white);
+  border-radius: 0 0 6px 6px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
+  border-top: 4px solid var(--cat-color);
+  overflow: hidden;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.accordion-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   width: 100%;
-  text-align: right;
+  padding: 20px 20px;
   background: none;
   border: none;
-  padding: 14px 0;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+.accordion-item.open .accordion-header {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+.accordion-header:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.accordion-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.accordion-label {
   font-family: var(--font-sign);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--forest);
-  cursor: pointer;
-  transition: color 0.15s;
   line-height: 1;
 }
-.cat-btn:hover { color: var(--terracotta); }
-.cat-btn.active {
-  color: var(--terracotta);
-  position: relative;
+
+.accordion-sub {
+  font-family: var(--font-playfair);
+  font-size: 13px;
+  font-style: italic;
+  color: var(--driftwood);
 }
-.cat-btn.active::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  right: calc(-48px - 4px);
-  transform: translateY(-50%);
-  width: calc(48px + 4px);
-  height: 2px;
-  background: var(--terracotta);
+
+.accordion-count {
+  font-family: var(--font-sign);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--driftwood);
+  background: var(--parchment);
+  border: 1px solid rgba(138, 122, 94, 0.25);
+  border-radius: 20px;
+  padding: 2px 9px;
+  flex-shrink: 0;
+}
+
+.chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--driftwood);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+.accordion-item.open .chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Accordion Body ── */
+.accordion-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s ease;
+}
+.accordion-item.open .accordion-body {
+  grid-template-rows: 1fr;
+}
+.accordion-body > .item-list {
+  overflow: hidden;
 }
 
 /* ── Item List ── */
 .item-list {
-  background: var(--bg-white);
-  border-radius: 0 6px 6px 0;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
-  border-left: 4px solid var(--terracotta);
-  padding: 8px 0;
-  min-height: 200px;
+  border-top: 1px solid transparent;
+  padding: 4px 0;
+  transition: border-color 0.15s;
+}
+.accordion-item.open .item-list {
+  border-top-color: rgba(0, 0, 0, 0.06);
 }
 
 .item-row {
@@ -321,44 +387,17 @@ const active = computed(() => categories.value[activeCategory.value] ?? null)
 
 /* ── Mobile ── */
 @media (max-width: 600px) {
-  .pretrip-layout {
-    grid-template-columns: 90px 1fr;
-    gap: 0 24px;
-  }
-  .item-list {
-    margin-top: 15px;
-    padding-left: 8px;
-  }
-  .cat-btn.active::after {
-    width: calc(20px + 4px);
-    right: calc(-20px - 4px);
-  }
   .pretrip-body {
     padding: 0 10px 60px;
   }
-  .pretrip-layout {
-    grid-template-columns: 90px 1fr;
-    gap: 0 24px;
+  .accordion-header {
+    padding: 14px 16px;
   }
-  .cat-btn {
-    font-size: 12px;
-    padding: 12px 0;
+  .accordion-label {
+    font-size: 13px;
   }
   .item-row {
     padding: 12px 16px;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-  }
-  .item-title {
-    width: 100%;
-  }
-  .item-extras {
-    width: 100%;
-    justify-content: flex-start;
-  }
-  .category-nav {
-    width: 90px;
   }
 }
 </style>
