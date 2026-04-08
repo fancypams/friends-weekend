@@ -19,25 +19,25 @@ sign_in_sign_ups = 8
 token_verifications = 10
 
 [functions.create-upload-ticket]
-verify_jwt = true
+verify_jwt = false
 
 [functions.complete-upload]
-verify_jwt = true
+verify_jwt = false
 
 [functions.gallery-feed]
-verify_jwt = true
+verify_jwt = false
 
 [functions.my-uploads]
-verify_jwt = true
+verify_jwt = false
 
 [functions.sign-media-url]
-verify_jwt = true
+verify_jwt = false
 
 [functions.invites]
-verify_jwt = true
+verify_jwt = false
 
 [functions.media]
-verify_jwt = true
+verify_jwt = false
 
 [functions.process-media]
 verify_jwt = false

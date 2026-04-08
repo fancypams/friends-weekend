@@ -5,12 +5,7 @@ import { audit } from '../_shared/audit.ts'
 import { processOneMediaAsset } from '../_shared/media-processor.ts'
 import { BUCKET } from '../_shared/constants.ts'
 import { extractCaptureTimestamp } from '../_shared/media-metadata.ts'
-import {
-  CAPTURE_WINDOW_END_ISO,
-  CAPTURE_WINDOW_START_ISO,
-  captureWindowLabel,
-  isWithinCaptureWindow,
-} from '../_shared/capture-window.ts'
+import { CAPTURE_WINDOW_END_ISO, CAPTURE_WINDOW_START_ISO, captureWindowLabel, isWithinCaptureWindow } from '../_shared/capture-window.ts'
 
 type CompleteUploadBody = {
   mediaId?: string
@@ -88,77 +83,80 @@ Deno.serve(async (req) => {
 
   const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer())
   const capture = await extractCaptureTimestamp(media.media_type, sourceBytes)
+  const enforceCaptureWindow = auth.profile.role !== 'admin'
 
-  if (!capture) {
-    await auth.admin
-      .from('media_assets')
-      .update({
-        status: 'failed',
-        uploaded_at: new Date().toISOString(),
-        processed_at: new Date().toISOString(),
-        failure_reason: `Missing capture timestamp metadata. Allowed window: ${captureWindowLabel()}.`,
+  if (enforceCaptureWindow) {
+    if (!capture) {
+      await auth.admin
+        .from('media_assets')
+        .update({
+          status: 'failed',
+          uploaded_at: new Date().toISOString(),
+          processed_at: new Date().toISOString(),
+          failure_reason: `Missing capture timestamp metadata. Allowed window: ${captureWindowLabel()}.`,
+        })
+        .eq('id', media.id)
+
+      await auth.admin.storage.from(BUCKET).remove([media.original_path])
+
+      await audit(auth.admin, {
+        actorId: auth.user.id,
+        action: 'media.capture_window_rejected',
+        entity: 'media_assets',
+        entityId: media.id,
+        details: {
+          reason: 'missing_capture_metadata',
+        },
       })
-      .eq('id', media.id)
 
-    await auth.admin.storage.from(BUCKET).remove([media.original_path])
+      return json(
+        {
+          status: 'failed',
+          mediaId: media.id,
+          reason: `Missing capture timestamp metadata. Allowed window: ${captureWindowLabel()}.`,
+        },
+        422,
+      )
+    }
 
-    await audit(auth.admin, {
-      actorId: auth.user.id,
-      action: 'media.capture_window_rejected',
-      entity: 'media_assets',
-      entityId: media.id,
-      details: {
-        reason: 'missing_capture_metadata',
-      },
-    })
+    if (!isWithinCaptureWindow(capture.capturedAt)) {
+      await auth.admin
+        .from('media_assets')
+        .update({
+          status: 'failed',
+          uploaded_at: new Date().toISOString(),
+          processed_at: new Date().toISOString(),
+          captured_at: capture.capturedAt.toISOString(),
+          capture_source: capture.source,
+          failure_reason: `Capture timestamp ${capture.capturedAt.toISOString()} is outside allowed window ${captureWindowLabel()}.`,
+        })
+        .eq('id', media.id)
 
-    return json(
-      {
-        status: 'failed',
-        mediaId: media.id,
-        reason: `Missing capture timestamp metadata. Allowed window: ${captureWindowLabel()}.`,
-      },
-      422,
-    )
-  }
+      await auth.admin.storage.from(BUCKET).remove([media.original_path])
 
-  if (!isWithinCaptureWindow(capture.capturedAt)) {
-    await auth.admin
-      .from('media_assets')
-      .update({
-        status: 'failed',
-        uploaded_at: new Date().toISOString(),
-        processed_at: new Date().toISOString(),
-        captured_at: capture.capturedAt.toISOString(),
-        capture_source: capture.source,
-        failure_reason: `Capture timestamp ${capture.capturedAt.toISOString()} is outside allowed window ${captureWindowLabel()}.`,
+      await audit(auth.admin, {
+        actorId: auth.user.id,
+        action: 'media.capture_window_rejected',
+        entity: 'media_assets',
+        entityId: media.id,
+        details: {
+          reason: 'capture_out_of_window',
+          captured_at: capture.capturedAt.toISOString(),
+          capture_source: capture.source,
+          allowed_start: CAPTURE_WINDOW_START_ISO,
+          allowed_end: CAPTURE_WINDOW_END_ISO,
+        },
       })
-      .eq('id', media.id)
 
-    await auth.admin.storage.from(BUCKET).remove([media.original_path])
-
-    await audit(auth.admin, {
-      actorId: auth.user.id,
-      action: 'media.capture_window_rejected',
-      entity: 'media_assets',
-      entityId: media.id,
-      details: {
-        reason: 'capture_out_of_window',
-        captured_at: capture.capturedAt.toISOString(),
-        capture_source: capture.source,
-        allowed_start: CAPTURE_WINDOW_START_ISO,
-        allowed_end: CAPTURE_WINDOW_END_ISO,
-      },
-    })
-
-    return json(
-      {
-        status: 'failed',
-        mediaId: media.id,
-        reason: `Capture timestamp is outside allowed window ${captureWindowLabel()}.`,
-      },
-      422,
-    )
+      return json(
+        {
+          status: 'failed',
+          mediaId: media.id,
+          reason: `Capture timestamp is outside allowed window ${captureWindowLabel()}.`,
+        },
+        422,
+      )
+    }
   }
 
   const { error: markErr } = await auth.admin
@@ -166,8 +164,8 @@ Deno.serve(async (req) => {
     .update({
       status: 'processing',
       uploaded_at: new Date().toISOString(),
-      captured_at: capture.capturedAt.toISOString(),
-      capture_source: capture.source,
+      captured_at: capture?.capturedAt?.toISOString() ?? null,
+      capture_source: capture?.source ?? null,
       failure_reason: null,
     })
     .eq('id', media.id)

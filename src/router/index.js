@@ -41,7 +41,7 @@ function cleanupAuthCallbackQueryParams() {
 
   const search = url.searchParams.toString()
   const nextUrl = `${url.origin}${url.pathname}${search ? `?${search}` : ''}${url.hash}`
-  window.history.replaceState({}, '', nextUrl)
+  window.history.replaceState(window.history.state, '', nextUrl)
 }
 
 const router = createRouter({
