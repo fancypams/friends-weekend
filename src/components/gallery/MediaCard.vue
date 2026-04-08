@@ -7,10 +7,6 @@ const props = defineProps({
     type: Object,
     required: true,
   },
-  downloading: {
-    type: Boolean,
-    default: false,
-  },
   deleting: {
     type: Boolean,
     default: false,
@@ -19,9 +15,17 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  overlay: {
+    type: Boolean,
+    default: false,
+  },
+  compact: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-const emit = defineEmits(['view', 'download', 'remove'])
+const emit = defineEmits(['remove'])
 
 const uploaderName = computed(() => {
   const value = String(props.item?.owner_email || '').trim().toLowerCase()
@@ -46,8 +50,8 @@ const relativeTime = computed(() => {
 </script>
 
 <template>
-  <article class="media-card">
-    <button class="thumb-wrap" type="button" @click="emit('view', item)">
+  <article class="media-card" :class="{ 'overlay-card': overlay, 'compact-card': compact }">
+    <div class="thumb-wrap">
       <span v-if="!item.preview_url" class="thumb-skeleton" aria-hidden="true"></span>
       <img
         v-if="item.media_type === 'image' && item.preview_url"
@@ -65,32 +69,42 @@ const relativeTime = computed(() => {
       ></video>
       <span v-else class="thumb-empty">Preview unavailable</span>
 
-      <span class="type-badge">{{ item.media_type === 'video' ? 'Video' : 'Photo' }}</span>
-
-    </button>
+      <button
+        v-if="compact && canRemove"
+        class="btn danger icon-btn compact-remove"
+        type="button"
+        :disabled="deleting"
+        :aria-label="deleting ? 'Removing media' : 'Remove media'"
+        @click="emit('remove', item)"
+      >
+        <span v-if="deleting">…</span>
+        <span v-else aria-hidden="true">🗑</span>
+      </button>
+    </div>
 
     <div class="card-body">
-      <div class="uploader-row">
-        <UploaderBadge :name="uploaderName" :email-key="item.owner_email" size="sm" />
-        <div class="uploader-copy">
-          <strong>{{ uploaderName }}</strong>
-          <small>{{ relativeTime }}</small>
+      <div class="meta-row">
+        <div class="uploader-row">
+          <UploaderBadge :name="uploaderName" :email-key="item.owner_email" size="sm" />
+          <div class="uploader-copy">
+            <strong>{{ uploaderName }}</strong>
+            <small>{{ relativeTime }}</small>
+          </div>
         </div>
-      </div>
 
-      <div class="filename-row">
-        <p class="filename">{{ item.original_filename }}</p>
-        <button
-          v-if="canRemove"
-          class="btn danger icon-btn"
-          type="button"
-          :disabled="deleting"
-          :aria-label="deleting ? 'Removing media' : 'Remove media'"
-          @click="emit('remove', item)"
-        >
-          <span v-if="deleting">…</span>
-          <span v-else aria-hidden="true">🗑</span>
-        </button>
+        <div class="actions-row">
+          <button
+            v-if="canRemove"
+            class="btn danger icon-btn"
+            type="button"
+            :disabled="deleting"
+            :aria-label="deleting ? 'Removing media' : 'Remove media'"
+            @click="emit('remove', item)"
+          >
+            <span v-if="deleting">…</span>
+            <span v-else aria-hidden="true">🗑</span>
+          </button>
+        </div>
       </div>
     </div>
   </article>
@@ -102,30 +116,27 @@ const relativeTime = computed(() => {
   border-radius: 12px;
   overflow: hidden;
   background: #fff;
-  display: grid;
+  display: block;
+  position: relative;
   content-visibility: auto;
   contain-intrinsic-size: 280px;
 }
 
 .thumb-wrap {
-  border: 0;
-  padding: 0;
   background: #f1f5f7;
-  cursor: pointer;
   position: relative;
-  touch-action: manipulation;
 }
 
 .thumb-wrap img,
 .thumb-wrap video {
   width: 100%;
-  height: 152px;
+  height: 132px;
   object-fit: cover;
   display: block;
 }
 
 .thumb-empty {
-  height: 152px;
+  height: 132px;
   display: grid;
   place-items: center;
   color: var(--warm-brown-muted);
@@ -145,23 +156,18 @@ const relativeTime = computed(() => {
   animation: shimmer 1.2s linear infinite;
 }
 
-.type-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  border-radius: 999px;
-  padding: 4px 8px;
-  font-size: 0.66rem;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  background: rgba(35, 50, 56, 0.72);
-  color: #fff;
-}
-
 .card-body {
   display: grid;
   gap: 10px;
   padding: 10px;
+  background: #fff;
+}
+
+.meta-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .uploader-row {
@@ -176,8 +182,7 @@ const relativeTime = computed(() => {
 }
 
 .uploader-copy strong,
-.uploader-copy small,
-.filename {
+.uploader-copy small {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -189,16 +194,12 @@ const relativeTime = computed(() => {
   font-size: 0.76rem;
 }
 
-.filename {
-  font-size: 0.82rem;
-  margin: 0;
-}
-
-.filename-row {
+.actions-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .btn {
@@ -232,11 +233,78 @@ const relativeTime = computed(() => {
   touch-action: manipulation;
 }
 
+.compact-remove {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 3px;
+  z-index: 2;
+  border-width: 1px;
+  font-size: 0.68rem;
+}
+
 @media (min-width: 700px) {
   .thumb-wrap img,
   .thumb-wrap video,
   .thumb-empty {
     height: 190px;
+  }
+}
+
+@media (max-width: 699px) {
+  .compact-card .thumb-wrap img,
+  .compact-card .thumb-wrap video,
+  .compact-card .thumb-empty {
+    height: 100%;
+  }
+
+  .compact-card .thumb-wrap,
+  .compact-card .thumb-empty {
+    aspect-ratio: 1 / 1;
+  }
+
+  .compact-card .card-body {
+    display: none;
+  }
+
+  .compact-card .btn.danger {
+    border-color: rgba(185, 64, 64, 0.5);
+    background: rgba(255, 236, 236, 0.75);
+    color: #b63b3b;
+    backdrop-filter: blur(2px);
+  }
+
+  .overlay-card .thumb-wrap img,
+  .overlay-card .thumb-wrap video,
+  .overlay-card .thumb-empty {
+    height: 236px;
+  }
+
+  .overlay-card .card-body {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to top, rgba(7, 16, 20, 0.78), rgba(7, 16, 20, 0.02));
+    color: #fff;
+  }
+
+  .overlay-card .meta-row {
+    align-items: flex-end;
+  }
+
+  .overlay-card .uploader-copy small {
+    color: rgba(255, 255, 255, 0.86);
+  }
+
+  .overlay-card .btn.danger {
+    border-color: rgba(255, 255, 255, 0.44);
+    background: rgba(16, 24, 29, 0.48);
+    color: #fff;
+    backdrop-filter: blur(4px);
   }
 }
 

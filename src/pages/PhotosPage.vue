@@ -1,9 +1,8 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import HeroHeader from '../components/HeroHeader.vue'
 import MediaCard from '../components/gallery/MediaCard.vue'
 import UploadPanel from '../components/gallery/UploadPanel.vue'
-import FullScreenViewer from '../components/gallery/FullScreenViewer.vue'
 import EmptyState from '../components/gallery/EmptyState.vue'
 import LoadingState from '../components/gallery/LoadingState.vue'
 import ErrorState from '../components/gallery/ErrorState.vue'
@@ -34,17 +33,11 @@ const uploadPanelOpen = ref(false)
 const uploadBusy = ref(false)
 const uploadError = ref('')
 const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
+const isMobileViewport = ref(typeof window !== 'undefined' ? window.innerWidth <= 699 : false)
 
-const viewerOpen = ref(false)
-const viewerIndex = ref(0)
-const viewerUrl = ref('')
-const viewerLoading = ref(false)
-const viewerError = ref('')
-const carouselIndex = ref(0)
+const mobileFeedMode = ref('grid')
 
-const downloadingById = ref({})
 const deletingById = ref({})
-let carouselTimer = null
 
 const allowedMime = new Set([
   'image/jpeg',
@@ -87,9 +80,6 @@ const captureWindowLabel = computed(() => (
 
 const canLoadApp = computed(() => hasSupabaseConfig && (bypassAuth || (isSignedIn.value && isInvited.value)))
 const hasMore = computed(() => Boolean(galleryCursor.value))
-const activeItem = computed(() => galleryItems.value[viewerIndex.value] ?? null)
-const featuredItem = computed(() => galleryItems.value[carouselIndex.value] ?? null)
-const hasCarouselNav = computed(() => galleryItems.value.length > 1)
 const selectedCount = computed(() => queueItems.value.length)
 
 function normalizeUploadError(err) {
@@ -296,97 +286,14 @@ function onOffline() {
   uploadError.value = 'You are offline. Uploads will resume when connection returns.'
 }
 
+function onResize() {
+  if (typeof window === 'undefined') return
+  isMobileViewport.value = window.innerWidth <= 699
+}
+
 function canRemove(item) {
   if (!item) return false
   return isAdmin.value || item.owner_id === userId.value
-}
-
-function formatUploader(email) {
-  const value = String(email || '').trim().toLowerCase()
-  if (!value) return 'Friend'
-  return value.split('@')[0].replace(/[._-]+/g, ' ')
-}
-
-function prettyDate(iso) {
-  if (!iso) return 'Unknown date'
-  return new Date(iso).toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
-function stopCarouselTimer() {
-  if (carouselTimer) {
-    clearInterval(carouselTimer)
-    carouselTimer = null
-  }
-}
-
-function startCarouselTimer() {
-  stopCarouselTimer()
-  if (galleryItems.value.length < 2) return
-
-  carouselTimer = setInterval(() => {
-    carouselIndex.value = (carouselIndex.value + 1) % galleryItems.value.length
-  }, 4000)
-}
-
-function setCarouselIndex(index, { pause = false } = {}) {
-  const max = galleryItems.value.length - 1
-  if (max < 0) {
-    carouselIndex.value = 0
-    return
-  }
-  carouselIndex.value = Math.max(0, Math.min(max, index))
-  if (pause) {
-    stopCarouselTimer()
-  } else {
-    startCarouselTimer()
-  }
-}
-
-function showCarouselNext() {
-  if (!galleryItems.value.length) return
-  setCarouselIndex((carouselIndex.value + 1) % galleryItems.value.length, { pause: true })
-}
-
-function showCarouselPrev() {
-  if (!galleryItems.value.length) return
-  setCarouselIndex((carouselIndex.value - 1 + galleryItems.value.length) % galleryItems.value.length, { pause: true })
-}
-
-function focusCarouselByItem(item) {
-  const index = galleryItems.value.findIndex((row) => row.id === item?.id)
-  if (index < 0) return
-  setCarouselIndex(index, { pause: true })
-}
-
-function preserveSelections(mutator) {
-  const activeViewerId = activeItem.value?.id || null
-  const activeCarouselId = featuredItem.value?.id || null
-  mutator()
-
-  if (!galleryItems.value.length) {
-    viewerIndex.value = 0
-    carouselIndex.value = 0
-    return
-  }
-
-  if (activeViewerId) {
-    const nextViewerIndex = galleryItems.value.findIndex((row) => row.id === activeViewerId)
-    viewerIndex.value = nextViewerIndex >= 0 ? nextViewerIndex : 0
-  } else if (viewerIndex.value > galleryItems.value.length - 1) {
-    viewerIndex.value = galleryItems.value.length - 1
-  }
-
-  if (activeCarouselId) {
-    const nextCarouselIndex = galleryItems.value.findIndex((row) => row.id === activeCarouselId)
-    carouselIndex.value = nextCarouselIndex >= 0 ? nextCarouselIndex : 0
-  } else if (carouselIndex.value > galleryItems.value.length - 1) {
-    carouselIndex.value = galleryItems.value.length - 1
-  }
 }
 
 async function resolveOwnerEmail(ownerId) {
@@ -414,9 +321,7 @@ async function applyRealtimeInsert(payload) {
     preview_url: '',
   }
 
-  preserveSelections(() => {
-    galleryItems.value = [nextItem, ...galleryItems.value]
-  })
+  galleryItems.value = [nextItem, ...galleryItems.value]
   void signAndPatchPreview(nextItem)
 }
 
@@ -442,28 +347,11 @@ function startLiveSync() {
     .subscribe()
 }
 
-function setDownloading(mediaId, value) {
-  downloadingById.value = {
-    ...downloadingById.value,
-    [mediaId]: value,
-  }
-}
-
 function setDeleting(mediaId, value) {
   deletingById.value = {
     ...deletingById.value,
     [mediaId]: value,
   }
-}
-
-function triggerDownload(url, filename) {
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename || 'media'
-  anchor.rel = 'noopener'
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
 }
 
 async function resolvePreviewUrl(item) {
@@ -513,17 +401,6 @@ async function loadGallery({ reset = false } = {}) {
 
     galleryItems.value = reset ? nextItems : [...galleryItems.value, ...nextItems]
     galleryCursor.value = payload.nextCursor || null
-
-    if (!galleryItems.value.length) {
-      viewerIndex.value = 0
-      carouselIndex.value = 0
-    } else if (viewerIndex.value > galleryItems.value.length - 1) {
-      viewerIndex.value = galleryItems.value.length - 1
-    }
-
-    if (carouselIndex.value > galleryItems.value.length - 1) {
-      carouselIndex.value = galleryItems.value.length - 1
-    }
 
     const previewCount = reset ? INITIAL_PREVIEW_COUNT : LOAD_MORE_PREVIEW_COUNT
     await hydratePreviews(nextItems, previewCount)
@@ -691,25 +568,6 @@ async function startUpload() {
   uploadBusy.value = false
 }
 
-async function downloadMedia(item) {
-  if (!item) return
-
-  const mediaId = item.id
-  setDownloading(mediaId, true)
-  galleryError.value = ''
-
-  try {
-    const signed = await withSessionRetry(() => signMediaUrl(mediaId, 'original'))
-    triggerDownload(signed.signedUrl, item.original_filename)
-  } catch (err) {
-    if (!(await maybeReauth(err))) {
-      galleryError.value = normalizeUploadError(err)
-    }
-  } finally {
-    setDownloading(mediaId, false)
-  }
-}
-
 async function deleteMediaItem(item) {
   if (!item || !canRemove(item)) return
 
@@ -721,12 +579,6 @@ async function deleteMediaItem(item) {
 
   try {
     await withSessionRetry(() => removeMedia(item.id))
-
-    if (viewerOpen.value && activeItem.value?.id === item.id) {
-      viewerOpen.value = false
-      viewerUrl.value = ''
-    }
-
     await loadGallery({ reset: true })
   } catch (err) {
     if (!(await maybeReauth(err))) {
@@ -737,58 +589,10 @@ async function deleteMediaItem(item) {
   }
 }
 
-async function hydrateViewerUrl() {
-  if (!viewerOpen.value || !activeItem.value) return
-
-  viewerLoading.value = true
-  viewerError.value = ''
-
-  try {
-    const signed = await withSessionRetry(() => signMediaUrl(activeItem.value.id, 'processed'))
-    viewerUrl.value = signed.signedUrl || ''
-  } catch (err) {
-    viewerUrl.value = ''
-    if (!(await maybeReauth(err))) {
-      viewerError.value = normalizeUploadError(err)
-    }
-  } finally {
-    viewerLoading.value = false
-  }
-}
-
-async function openViewerByIndex(index) {
-  viewerIndex.value = index
-  viewerOpen.value = true
-  await hydrateViewerUrl()
-}
-
-async function openViewerByItem(item) {
-  const index = galleryItems.value.findIndex((row) => row.id === item.id)
-  if (index < 0) return
-  await openViewerByIndex(index)
-}
-
-function closeViewer() {
-  viewerOpen.value = false
-  viewerUrl.value = ''
-  viewerError.value = ''
-}
-
-async function showNext() {
-  if (!galleryItems.value.length) return
-  viewerIndex.value = (viewerIndex.value + 1) % galleryItems.value.length
-  await hydrateViewerUrl()
-}
-
-async function showPrev() {
-  if (!galleryItems.value.length) return
-  viewerIndex.value = (viewerIndex.value - 1 + galleryItems.value.length) % galleryItems.value.length
-  await hydrateViewerUrl()
-}
-
 onMounted(async () => {
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
+  window.addEventListener('resize', onResize)
   await restoreUploadQueue()
 
   if (!hasSupabaseConfig || !supabase) {
@@ -839,30 +643,13 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
-  stopCarouselTimer()
+  window.removeEventListener('resize', onResize)
   stopLiveSync()
   if (authSubscription) {
     authSubscription.unsubscribe()
     authSubscription = null
   }
 })
-
-watch(
-  () => galleryItems.value.length,
-  (length) => {
-    if (!length) {
-      carouselIndex.value = 0
-      stopCarouselTimer()
-      return
-    }
-
-    if (carouselIndex.value >= length) {
-      carouselIndex.value = 0
-    }
-
-    startCarouselTimer()
-  },
-)
 </script>
 
 <template>
@@ -908,36 +695,32 @@ watch(
           <template v-else>
             <p v-if="galleryError" class="error-text">{{ galleryError }}</p>
 
-            <article v-if="featuredItem" class="carousel-frame">
-              <button class="carousel-media-btn" type="button" @click="openViewerByIndex(carouselIndex)">
-                <img
-v-if="featuredItem.media_type === 'image' && featuredItem.preview_url" class="carousel-media"
-                  :src="featuredItem.preview_url" :alt="featuredItem.original_filename" />
-                <video
-v-else-if="featuredItem.media_type === 'video' && featuredItem.preview_url"
-                  class="carousel-media" :src="featuredItem.preview_url" muted playsinline preload="metadata"></video>
-                <span v-else class="carousel-empty">Preview unavailable</span>
-              </button>
-
-              <div class="carousel-overlay">
-                <p>{{ formatUploader(featuredItem.owner_email) }} · {{ prettyDate(featuredItem.published_at) }}</p>
+            <div class="gallery-controls">
+              <div class="mobile-feed-toggle" role="tablist" aria-label="Mobile feed layout">
+                <button
+                  class="toggle-btn"
+                  :class="{ active: mobileFeedMode === 'grid' }"
+                  type="button"
+                  role="tab"
+                  :aria-selected="mobileFeedMode === 'grid'"
+                  @click="mobileFeedMode = 'grid'"
+                >
+                  Grid
+                </button>
+                <button
+                  class="toggle-btn"
+                  :class="{ active: mobileFeedMode === 'list' }"
+                  type="button"
+                  role="tab"
+                  :aria-selected="mobileFeedMode === 'list'"
+                  @click="mobileFeedMode = 'list'"
+                >
+                  List
+                </button>
               </div>
+            </div>
 
-              <button
-v-if="hasCarouselNav" class="carousel-nav left"
-                type="button"
-aria-label="Show previous item"
-                @click="showCarouselPrev"
-              >
-                ‹
-              </button>
-              <button v-if="hasCarouselNav" class="carousel-nav right" type="button" aria-label="Show next item"
-                @click="showCarouselNext">
-                ›
-              </button>
-            </article>
-
-            <div class="gallery-grid">
+            <div class="gallery-feed" :class="`mobile-${mobileFeedMode}`">
               <button class="upload-card" type="button" @click="uploadPanelOpen = true">
                 <span class="upload-card-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
@@ -949,13 +732,12 @@ aria-label="Show previous item"
               </button>
 
               <MediaCard v-for="item in galleryItems" :key="item.id" :item="item"
-                :downloading="Boolean(downloadingById[item.id])" :deleting="Boolean(deletingById[item.id])"
-                :can-remove="canRemove(item)" @view="focusCarouselByItem" @download="downloadMedia"
-                @remove="deleteMediaItem" />
+                :overlay="isMobileViewport && mobileFeedMode === 'list'"
+                :compact="isMobileViewport && mobileFeedMode === 'grid'" :deleting="Boolean(deletingById[item.id])"
+                :can-remove="canRemove(item)" @remove="deleteMediaItem" />
             </div>
 
-            <button v-if="hasMore" class="btn soft load-more" type="button" :disabled="galleryLoading"
-              @click="loadGallery()">
+            <button v-if="hasMore" class="btn soft load-more" type="button" :disabled="galleryLoading" @click="loadGallery()">
               {{ galleryLoading ? 'Loading…' : 'Load more' }}
             </button>
           </template>
@@ -967,12 +749,6 @@ aria-label="Show previous item"
       :upload-busy="uploadBusy" :upload-error="uploadError" :capture-window-label="captureWindowLabel"
       @close="uploadPanelOpen = false" @files-selected="addSelectedFiles" @upload="startUpload" @retry="retryUpload"
       @remove="removeQueueItem" />
-
-    <FullScreenViewer :open="viewerOpen" :item="activeItem" :index="viewerIndex" :total="galleryItems.length"
-      :media-url="viewerUrl" :loading="viewerLoading" :error="viewerError" :can-delete="canRemove(activeItem)"
-      :downloading="Boolean(activeItem && downloadingById[activeItem.id])"
-      :deleting="Boolean(activeItem && deletingById[activeItem.id])" @close="closeViewer" @next="showNext"
-      @prev="showPrev" @download="downloadMedia" @delete="deleteMediaItem" />
   </div>
 </template>
 
@@ -1021,17 +797,26 @@ aria-label="Show previous item"
   gap: 10px;
 }
 
-.gallery-grid {
+.gallery-controls {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.mobile-feed-toggle {
+  display: none;
+}
+
+.gallery-feed {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .upload-card {
   border: 1px dashed rgba(92, 138, 150, 0.55);
   border-radius: 12px;
   background: #f4f8fa;
-  min-height: 248px;
+  min-height: 220px;
   padding: 12px;
   display: grid;
   place-content: center;
@@ -1058,76 +843,6 @@ aria-label="Show previous item"
   place-items: center;
   margin: 0 auto;
   background: rgba(92, 138, 150, 0.16);
-}
-
-.carousel-frame {
-  position: relative;
-  border-radius: 14px;
-  overflow: hidden;
-  background: linear-gradient(130deg, #2b4b55, #37535f);
-  border: 1px solid rgba(92, 138, 150, 0.28);
-  box-shadow: 0 10px 24px rgba(28, 47, 54, 0.16);
-}
-
-.carousel-media-btn {
-  border: 0;
-  padding: 0;
-  width: 100%;
-  background: transparent;
-  cursor: pointer;
-  touch-action: pan-y;
-}
-
-.carousel-media {
-  width: 100%;
-  height: 320px;
-  display: block;
-  object-fit: cover;
-}
-
-.carousel-empty {
-  height: 320px;
-  color: rgba(255, 255, 255, 0.95);
-  display: grid;
-  place-items: center;
-}
-
-.carousel-overlay {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 12px 14px;
-  background: linear-gradient(to top, rgba(11, 20, 24, 0.72), rgba(11, 20, 24, 0));
-  color: #fff;
-}
-
-.carousel-overlay p {
-  font-size: 0.78rem;
-  opacity: 0.9;
-}
-
-.carousel-nav {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.86);
-  color: #23383f;
-  font-size: 1.4rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.carousel-nav.left {
-  left: 10px;
-}
-
-.carousel-nav.right {
-  right: 10px;
 }
 
 
@@ -1193,12 +908,7 @@ h2 {
     padding-inline: 20px;
   }
 
-  .carousel-media,
-  .carousel-empty {
-    height: 420px;
-  }
-
-  .gallery-grid {
+  .gallery-feed {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -1208,8 +918,88 @@ h2 {
     padding-top: 86px;
   }
 
-  .gallery-grid {
+  .gallery-feed {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 699px) {
+  .photos-content {
+    padding-inline: 8px;
+    gap: 10px;
+  }
+
+  .panel {
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .gallery-controls {
+    justify-content: flex-start;
+  }
+
+  .mobile-feed-toggle {
+    display: inline-flex;
+    border: 1px solid rgba(92, 138, 150, 0.35);
+    border-radius: 999px;
+    background: #f4f8fa;
+    padding: 3px;
+    gap: 3px;
+  }
+
+  .toggle-btn {
+    border: 0;
+    min-height: 34px;
+    padding: 0 14px;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--forest);
+    font-size: 0.8rem;
+    font-weight: 650;
+    cursor: pointer;
+  }
+
+  .toggle-btn.active {
+    background: var(--forest);
+    color: #fff;
+  }
+
+  .gallery-feed {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .gallery-feed.mobile-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .gallery-feed.mobile-grid .upload-card {
+    min-height: 0;
+    aspect-ratio: 1 / 1;
+    padding: 8px;
+    gap: 4px;
+  }
+
+  .gallery-feed.mobile-grid .upload-card strong {
+    font-size: 0.78rem;
+  }
+
+  .gallery-feed.mobile-grid .upload-card small {
+    display: none;
+  }
+
+  .gallery-feed.mobile-grid .upload-card-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .gallery-feed.mobile-list {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-card {
+    min-height: 188px;
   }
 }
 </style>
