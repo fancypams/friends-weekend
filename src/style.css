@@ -51,6 +51,10 @@ body {
   margin: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background:
+    radial-gradient(ellipse at top, rgba(122, 176, 180, 0.35), transparent 55%),
+    linear-gradient(180deg, #7ab0b4 0%, #c4dde0 30%, var(--bg-page) 65%);
+  min-height: 100vh;
 }
 
 h1, p {

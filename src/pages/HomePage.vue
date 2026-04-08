@@ -24,12 +24,18 @@ import HeroHeader from '../components/HeroHeader.vue'
 
       </router-link>
 
-            <router-link to="/photos" class="pennant-card" style="--card-bg: var(--green-primary)">
+      <router-link to="/pre-trip" class="pennant-card" style="--card-bg: var(--green-primary)">
+        <div class="pennant-text">
+          <span class="pennant-title">Pre-Trip Prep</span>
+          <span class="pennant-sub">Movies, music &amp; more</span>
+        </div>
+      </router-link>
+
+      <router-link to="/photos" class="pennant-card" style="--card-bg: var(--gold)">
         <div class="pennant-text">
           <span class="pennant-title">Photos</span>
           <span class="pennant-sub">Shared private gallery</span>
         </div>
-
       </router-link>
     </nav>
   </div>
@@ -38,7 +44,7 @@ import HeroHeader from '../components/HeroHeader.vue'
 <style scoped>
 .home {
   min-height: 100vh;
-  background: var(--bg-page);
+  background: transparent;
   font-family: var(--font-sans);
   display: flex;
   flex-direction: column;

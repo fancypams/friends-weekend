@@ -127,6 +127,7 @@ onBeforeUnmount(() => {
       <router-link to="/" class="nav-item" @click="menuOpen = false">Home</router-link>
       <router-link to="/basics" class="nav-item" @click="menuOpen = false">Basics</router-link>
       <router-link to="/itinerary" class="nav-item" @click="menuOpen = false">Itinerary</router-link>
+      <router-link to="/pre-trip" class="nav-item" @click="menuOpen = false">Pre-Trip Prep</router-link>
       <router-link to="/photos" class="nav-item" @click="menuOpen = false">Photos</router-link>
       <button type="button" class="nav-item nav-signout" @click="signOutFromMenu">Sign out</button>
     </nav>
@@ -156,7 +157,6 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .hero-header {
-  background: var(--sky);
   position: relative;
   min-height: fit-content;
   display: flex;

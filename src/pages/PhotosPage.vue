@@ -602,7 +602,7 @@ watch(
 <style scoped>
 .photos-page {
   min-height: 100vh;
-  background: #fff9f2;
+  background: transparent;
   color: #1A3329;
   font-family: system-ui, 'Segoe UI', sans-serif;
 }

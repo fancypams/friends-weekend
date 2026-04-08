@@ -149,7 +149,7 @@ onMounted(async () => {
 <style scoped>
 .itinerary-page {
   min-height: 100vh;
-  background: var(--bg-page);
+  background: transparent;
   font-family: var(--font-sans);
   color: var(--green-darkest);
 }

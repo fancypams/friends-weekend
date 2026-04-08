@@ -196,7 +196,7 @@ onMounted(async () => {
 <style scoped>
 .basics-page {
   min-height: 100vh;
-  background: var(--bg-page);
+  background: transparent;
   font-family: var(--font-sans);
   color: var(--green-darkest);
 }
