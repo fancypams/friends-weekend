@@ -353,7 +353,7 @@ onBeforeUnmount(() => {
   }
 
   .countdown-badge {
-    margin: 2px 0 0;
+    margin: 0 auto;
     padding: 8px 10px;
     border-radius: 999px;
     background: rgba(205, 225, 230, 0.78);
