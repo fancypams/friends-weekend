@@ -411,7 +411,7 @@ onMounted(loadGroceries)
 /* ── List section ── */
 .item-table {
   background: var(--bg-white);
-  border-radius: 6px;
+  border-radius: 0 6px 0 6px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
   border-left: 4px solid var(--terracotta);
   overflow: hidden;

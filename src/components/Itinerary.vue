@@ -333,6 +333,7 @@ onMounted(async () => {
   }
   .day-nav {
     width: 90px;
+    padding-top: 8px;
   }
 }
 </style>

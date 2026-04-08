@@ -230,7 +230,7 @@ onMounted(async () => {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
   margin-bottom: 20px;
   min-height: 220px;
-  border-radius: 6px 0 0 6px;
+  border-radius: 6px;
 }
 
 .property-photo {
@@ -359,7 +359,9 @@ onMounted(async () => {
 
 /* ── Mobile ── */
 @media (max-width: 520px) {
-  .property-card { flex-direction: column; }
+  .property-card { 
+    flex-direction: column;
+  }
   .property-photo { width: 100%; height: 180px; }
   .photo-placeholder { min-height: 180px; }
   .property-divider { width: 100%; height: 3px; }
