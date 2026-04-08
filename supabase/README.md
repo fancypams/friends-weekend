@@ -48,6 +48,23 @@ Deploy these functions:
 - `media`
 - `process-media`
 
+For this project, auth is enforced inside each function via `requireAuth()` in `functions/_shared/auth.ts`.
+Deploy user-facing functions with gateway JWT verification disabled:
+
+```bash
+supabase functions deploy create-upload-ticket --no-verify-jwt
+supabase functions deploy complete-upload --no-verify-jwt
+supabase functions deploy gallery-feed --no-verify-jwt
+supabase functions deploy my-uploads --no-verify-jwt
+supabase functions deploy sign-media-url --no-verify-jwt
+supabase functions deploy invites --no-verify-jwt
+supabase functions deploy media --no-verify-jwt
+supabase functions deploy process-media
+```
+
+Why: some projects can hit Edge gateway `Invalid JWT` despite valid Auth-issued access tokens.
+Keeping verification in `requireAuth()` avoids that gateway mismatch while preserving access control.
+
 ## 5) Session Lifetime Policy
 
 Set and document explicit auth session limits so login behavior is predictable:
@@ -80,7 +97,9 @@ For hosted Supabase projects, set the equivalent values in **Auth settings** in 
 Current processing pipeline is **copy-through** for secure publishing:
 - uploaded objects are copied into `processed/` and `thumbs/`
 - media is published only after processing step succeeds
-- uploads are rejected unless capture metadata falls within Jul 31-Aug 4, 2026 (Seattle time)
+- capture-window policy:
+  - `admin` uploads are exempt
+  - non-admin uploads are rejected unless capture metadata falls within Jul 31-Aug 4, 2026 (Seattle time)
 
 If you need true HEIC to JPEG conversion, MP4 transcoding, or EXIF stripping, plug those transformations into `functions/_shared/media-processor.ts` or move processing to a dedicated worker service.
 
