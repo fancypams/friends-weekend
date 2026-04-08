@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import HeroHeader from '../components/HeroHeader.vue'
 import { supabase, supabaseAnonKey, bypassAuth, supabaseFunctionUrl } from '../lib/supabaseClient'
 
@@ -7,10 +7,52 @@ const SHEET_ID = '10Vb7iKPjZC2THOPiMf50MtKMM5K3LQ70VTVdBCuSdlo'
 const SHEET_NAME = 'Groceries'
 const FAMILIES = ['Ekanger', 'Dzambo', 'Schambach', 'Montanez', 'Habibi', 'Donaldson']
 
+
 // ── List state ──
 const loading = ref(true)
 const listError = ref(null)
 const items = ref([])
+
+// ── Purchased state (persisted locally) ──
+const LS_KEY = 'friends-weekend-purchased'
+const purchased = ref(new Set(JSON.parse(localStorage.getItem(LS_KEY) ?? '[]')))
+
+function itemKey(row) {
+  return `${row.item}||${row.qty}||${row.family}`
+}
+
+async function togglePurchased(row) {
+  const key = itemKey(row)
+  const next = new Set(purchased.value)
+  const nowPurchased = !next.has(key)
+  if (nowPurchased) next.add(key)
+  else next.delete(key)
+  purchased.value = next
+  localStorage.setItem(LS_KEY, JSON.stringify([...next]))
+
+  const rowIndex = items.value.indexOf(row)
+  console.log('[togglePurchased] rowIndex:', rowIndex, 'purchased:', nowPurchased)
+
+  try {
+    const headers = await getAuthHeaders()
+    const res = await fetch(supabaseFunctionUrl('toggle-grocery-purchased'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ rowIndex, purchased: nowPurchased }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      console.error('[GroceriesPage] toggle-purchased failed:', res.status, body)
+    } else {
+      console.log('[GroceriesPage] toggle-purchased ok')
+    }
+  } catch (err) {
+    console.error('[GroceriesPage] toggle-purchased error', err)
+  }
+}
+
+const pendingItems = computed(() => items.value.filter(r => !purchased.value.has(itemKey(r))))
+const purchasedItems = computed(() => items.value.filter(r => purchased.value.has(itemKey(r))))
 
 // ── Delete state ──
 const deleting = ref(null) // index of row being deleted
@@ -151,7 +193,22 @@ async function handleSubmit() {
   submitting.value = false
 }
 
-onMounted(loadGroceries)
+onMounted(async () => {
+  loadGroceries()
+
+  if (supabase) {
+    const { data: sessionData } = await supabase.auth.getSession()
+    const userId = sessionData.session?.user?.id
+    if (userId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('family')
+        .eq('user_id', userId)
+        .maybeSingle()
+      if (profile?.family) formFamily.value = profile.family
+    }
+  }
+})
 </script>
 
 <template>
@@ -234,16 +291,33 @@ onMounted(loadGroceries)
 
         <div v-else class="item-table">
           <div class="table-header">
+            <span class="header-check-icon">
+              <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="8" cy="8" r="6.25" fill="currentColor" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M5.5 8l1.75 1.75L10.5 6.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
             <span>Item</span>
             <span>Qty</span>
             <span>Family</span>
             <span></span>
           </div>
+
+          <!-- Pending items -->
           <div
-            v-for="(row, i) in items"
-            :key="i"
+            v-for="row in pendingItems"
+            :key="itemKey(row)"
             class="table-row"
           >
+            <button
+              class="check-btn"
+              :aria-label="`Mark ${row.item} as purchased`"
+              @click="togglePurchased(row)"
+            >
+              <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5"/>
+              </svg>
+            </button>
             <span class="row-item">{{ row.item }}</span>
             <span class="row-qty">{{ row.qty }}</span>
             <span class="row-family">{{ row.family }}</span>
@@ -251,13 +325,40 @@ onMounted(loadGroceries)
               class="delete-btn"
               :disabled="deleting !== null"
               :aria-label="`Remove ${row.item}`"
-              @click="handleDelete(i)"
+              @click="handleDelete(items.indexOf(row))"
             >
-              <span v-if="deleting === i" class="delete-spinner"></span>
+              <span v-if="deleting === items.indexOf(row)" class="delete-spinner"></span>
               <svg v-else viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M3 4h10M6 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M5 4l.5 8h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
+          </div>
+
+          <!-- Purchased divider -->
+          <div v-if="purchasedItems.length > 0" class="purchased-divider">
+            <span>Purchased</span>
+          </div>
+
+          <!-- Purchased items -->
+          <div
+            v-for="(row) in purchasedItems"
+            :key="itemKey(row)"
+            class="table-row table-row--purchased"
+          >
+            <button
+              class="check-btn check-btn--checked"
+              :aria-label="`Unmark ${row.item} as purchased`"
+              @click="togglePurchased(row)"
+            >
+              <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="8" cy="8" r="6.25" fill="currentColor" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M5.5 8l1.75 1.75L10.5 6.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <span class="row-item">{{ row.item }}</span>
+            <span class="row-qty">{{ row.qty }}</span>
+            <span class="row-family">{{ row.family }}</span>
+            <span></span>
           </div>
         </div>
       </section>
@@ -419,7 +520,7 @@ onMounted(loadGroceries)
 
 .table-header {
   display: grid;
-  grid-template-columns: 1fr 100px 120px 36px;
+  grid-template-columns: 36px 1fr 100px 120px 36px;
   padding: 10px 20px;
   background: var(--parchment);
   font-family: var(--font-sign);
@@ -433,12 +534,68 @@ onMounted(loadGroceries)
 
 .table-row {
   display: grid;
-  grid-template-columns: 1fr 100px 120px 36px;
+  grid-template-columns: 36px 1fr 100px 120px 36px;
   padding: 13px 20px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   align-items: center;
 }
 .table-row:last-child { border-bottom: none; }
+
+.table-row--purchased .row-item,
+.table-row--purchased .row-qty,
+.table-row--purchased .row-family {
+  text-decoration: line-through;
+  opacity: 0.4;
+}
+
+/* ── Check button ── */
+.header-check-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.header-check-icon svg {
+  width: 13px;
+  height: 13px;
+  color: var(--driftwood);
+}
+
+.check-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--driftwood);
+  transition: color 0.15s, transform 0.1s;
+  flex-shrink: 0;
+}
+.check-btn svg { width: 16px; height: 16px; }
+.check-btn:hover { color: var(--green-primary); transform: scale(1.1); }
+.check-btn--checked { color: var(--green-primary); }
+.check-btn--checked:hover { color: var(--driftwood); }
+
+/* ── Purchased divider ── */
+.purchased-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  font-family: var(--font-sign);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--driftwood);
+  background: var(--parchment);
+  border-top: 1px solid rgba(0,0,0,0.06);
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
 
 .row-item {
   font-size: 14px;
@@ -546,7 +703,7 @@ onMounted(loadGroceries)
 
   .table-header,
   .table-row {
-    grid-template-columns: 1fr 70px 100px 36px;
+    grid-template-columns: 36px 1fr 70px 100px 36px;
     padding: 10px 14px;
   }
 }
