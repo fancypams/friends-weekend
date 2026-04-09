@@ -1,6 +1,15 @@
+<script setup>
+defineProps({
+  count: {
+    type: Number,
+    default: 8,
+  },
+})
+</script>
+
 <template>
   <div class="skeleton-grid" aria-hidden="true">
-    <span v-for="n in 8" :key="n" class="skeleton-card"></span>
+    <span v-for="n in count" :key="n" class="skeleton-card"></span>
   </div>
 </template>
 

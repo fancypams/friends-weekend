@@ -1,11 +1,12 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import HeroHeader from '../components/HeroHeader.vue'
 import MediaCard from '../components/gallery/MediaCard.vue'
 import UploadPanel from '../components/gallery/UploadPanel.vue'
 import EmptyState from '../components/gallery/EmptyState.vue'
 import LoadingState from '../components/gallery/LoadingState.vue'
 import ErrorState from '../components/gallery/ErrorState.vue'
+import FullScreenViewer from '../components/gallery/FullScreenViewer.vue'
 import { bypassAuth, hasSupabaseConfig, supabase } from '../lib/supabaseClient'
 import {
   completeUpload,
@@ -37,6 +38,12 @@ const mobileFeedMode = ref('grid')
 
 const deletingById = ref({})
 const previewRetryById = ref({})
+const viewerOpen = ref(false)
+const viewerMediaId = ref('')
+const viewerMediaUrl = ref('')
+const viewerLoading = ref(false)
+const viewerError = ref('')
+let viewerLoadToken = 0
 
 const allowedMime = new Set([
   'image/jpeg',
@@ -69,6 +76,9 @@ const UPLOAD_RETRY_ATTEMPTS = 3
 const RETRY_BASE_MS = 700
 const AUTH_HEARTBEAT_MS = 30_000
 const AUTH_REFRESH_BUFFER_SECONDS = 90
+const SIGNED_URL_REFRESH_BUFFER_SECONDS = 45
+const SIGNED_URL_CACHE_STORAGE_KEY = 'friends-weekend:signed-url-cache:v1'
+const SIGNED_URL_CACHE_MAX_ENTRIES = 500
 const UPLOAD_DB_NAME = 'friends-weekend-upload-queue'
 const UPLOAD_DB_STORE = 'queue_items'
 
@@ -82,6 +92,16 @@ const captureWindowLabel = computed(() => (
 const canLoadApp = computed(() => hasSupabaseConfig && isSignedIn.value)
 const hasMore = computed(() => Boolean(galleryCursor.value))
 const selectedCount = computed(() => queueItems.value.length)
+const viewerIndex = computed(() => galleryItems.value.findIndex((item) => item.id === viewerMediaId.value))
+const viewerItem = computed(() => {
+  const idx = viewerIndex.value
+  if (idx < 0) return null
+  return galleryItems.value[idx] || null
+})
+const viewerTotal = computed(() => galleryItems.value.length)
+const signedUrlCache = new Map()
+const inFlightSignedUrlByKey = new Map()
+let signedUrlCachePersistTimer = null
 
 function normalizeUploadError(err) {
   if (!err) return 'Request failed'
@@ -416,6 +436,230 @@ function clearPreviewRetry(itemOrId) {
   }
 }
 
+function signedUrlCacheKey(mediaId, variant) {
+  return `${String(mediaId || '').trim()}::${String(variant || 'processed').trim()}`
+}
+
+function persistSignedUrlCacheSoon() {
+  if (typeof window === 'undefined' || signedUrlCachePersistTimer) return
+  signedUrlCachePersistTimer = window.setTimeout(() => {
+    signedUrlCachePersistTimer = null
+    try {
+      const now = Math.floor(Date.now() / 1000)
+      const entries = []
+      for (const [key, value] of signedUrlCache.entries()) {
+        const url = String(value?.url || '').trim()
+        const expiresAt = Number(value?.expiresAt || 0)
+        if (!url) continue
+        if (expiresAt && expiresAt <= now + SIGNED_URL_REFRESH_BUFFER_SECONDS) continue
+        entries.push([key, { url, expiresAt }])
+      }
+
+      if (entries.length > SIGNED_URL_CACHE_MAX_ENTRIES) {
+        entries.sort((a, b) => Number(b[1].expiresAt || 0) - Number(a[1].expiresAt || 0))
+      }
+      const limited = entries.slice(0, SIGNED_URL_CACHE_MAX_ENTRIES)
+      window.sessionStorage.setItem(SIGNED_URL_CACHE_STORAGE_KEY, JSON.stringify(limited))
+    } catch {
+      // Ignore storage quota / availability failures.
+    }
+  }, 120)
+}
+
+function hydrateSignedUrlCacheFromStorage() {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = window.sessionStorage.getItem(SIGNED_URL_CACHE_STORAGE_KEY)
+    if (!raw) return
+
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return
+
+    const now = Math.floor(Date.now() / 1000)
+    for (const row of parsed) {
+      const key = Array.isArray(row) ? String(row[0] || '').trim() : ''
+      const value = Array.isArray(row) ? row[1] : null
+      const url = String(value?.url || '').trim()
+      const expiresAt = Number(value?.expiresAt || 0)
+
+      if (!key || !url) continue
+      if (expiresAt && expiresAt <= now + SIGNED_URL_REFRESH_BUFFER_SECONDS) continue
+
+      signedUrlCache.set(key, { url, expiresAt })
+    }
+  } catch {
+    // Ignore invalid or unavailable storage state.
+  }
+}
+
+function clearSignedUrlCache(mediaId) {
+  if (!mediaId) return
+  const base = `${String(mediaId).trim()}::`
+  let changed = false
+  for (const key of signedUrlCache.keys()) {
+    if (key.startsWith(base)) {
+      signedUrlCache.delete(key)
+      changed = true
+    }
+  }
+  if (changed) persistSignedUrlCacheSoon()
+}
+
+function isSignedUrlExpiring(url, refreshBufferSeconds = SIGNED_URL_REFRESH_BUFFER_SECONDS) {
+  const expiresAt = extractSignedTokenExpiry(url)
+  if (!expiresAt) return true
+  const now = Math.floor(Date.now() / 1000)
+  return expiresAt <= now + refreshBufferSeconds
+}
+
+function getCachedSignedUrl(mediaId, variant) {
+  const key = signedUrlCacheKey(mediaId, variant)
+  const cached = signedUrlCache.get(key)
+  if (!cached?.url) return ''
+
+  const expiresAt = Number(cached.expiresAt || 0)
+  const now = Math.floor(Date.now() / 1000)
+  const expiring = expiresAt
+    ? expiresAt <= now + SIGNED_URL_REFRESH_BUFFER_SECONDS
+    : isSignedUrlExpiring(cached.url)
+
+  if (expiring) {
+    signedUrlCache.delete(key)
+    persistSignedUrlCacheSoon()
+    return ''
+  }
+
+  return cached.url
+}
+
+function setCachedSignedUrl(mediaId, variant, signedPayload) {
+  const key = signedUrlCacheKey(mediaId, variant)
+  const url = String(signedPayload?.signedUrl || '').trim()
+  if (!url) return ''
+
+  const tokenExpiry = extractSignedTokenExpiry(url)
+  const expiresIn = Number(signedPayload?.expiresIn || 0)
+  const now = Math.floor(Date.now() / 1000)
+  const fallbackExpiry = expiresIn > 0 ? now + expiresIn : 0
+
+  signedUrlCache.set(key, {
+    url,
+    expiresAt: tokenExpiry || fallbackExpiry || 0,
+  })
+  persistSignedUrlCacheSoon()
+
+  return url
+}
+
+async function getSignedUrlCached(mediaId, variant, { force = false } = {}) {
+  if (!mediaId) return ''
+  const key = signedUrlCacheKey(mediaId, variant)
+
+  if (force) signedUrlCache.delete(key)
+  if (force) persistSignedUrlCacheSoon()
+
+  const cachedUrl = getCachedSignedUrl(mediaId, variant)
+  if (cachedUrl) return cachedUrl
+
+  const existingRequest = inFlightSignedUrlByKey.get(key)
+  if (existingRequest) return existingRequest
+
+  const request = withSessionRetry(() => signMediaUrl(mediaId, variant))
+    .then((signed) => setCachedSignedUrl(mediaId, variant, signed))
+    .finally(() => {
+      inFlightSignedUrlByKey.delete(key)
+    })
+
+  inFlightSignedUrlByKey.set(key, request)
+  return request
+}
+
+function closeViewer() {
+  viewerOpen.value = false
+  viewerMediaId.value = ''
+  viewerMediaUrl.value = ''
+  viewerError.value = ''
+  viewerLoading.value = false
+  viewerLoadToken += 1
+}
+
+function openViewer(item) {
+  if (!item?.id) return
+  viewerOpen.value = true
+  viewerMediaId.value = item.id
+}
+
+function setViewerByIndex(nextIndex) {
+  const total = galleryItems.value.length
+  if (!total) return
+
+  const normalized = (nextIndex + total) % total
+  const next = galleryItems.value[normalized]
+  if (!next?.id) return
+  viewerMediaId.value = next.id
+}
+
+function showNextViewerItem() {
+  if (viewerTotal.value < 2 || viewerIndex.value < 0) return
+  setViewerByIndex(viewerIndex.value + 1)
+}
+
+function showPrevViewerItem() {
+  if (viewerTotal.value < 2 || viewerIndex.value < 0) return
+  setViewerByIndex(viewerIndex.value - 1)
+}
+
+function prefetchViewerNeighbors() {
+  if (!viewerOpen.value || viewerTotal.value < 2 || viewerIndex.value < 0) return
+
+  const prevIndex = (viewerIndex.value - 1 + viewerTotal.value) % viewerTotal.value
+  const nextIndex = (viewerIndex.value + 1) % viewerTotal.value
+  const neighbors = [galleryItems.value[prevIndex], galleryItems.value[nextIndex]]
+
+  for (const neighbor of neighbors) {
+    if (!neighbor?.id) continue
+    void getSignedUrlCached(neighbor.id, 'processed').catch(() => { })
+  }
+}
+
+async function loadViewerMedia(item, { force = false } = {}) {
+  if (!item?.id || !viewerOpen.value) return
+
+  const loadToken = ++viewerLoadToken
+  viewerLoading.value = true
+  viewerError.value = ''
+  viewerMediaUrl.value = ''
+
+  try {
+    const url = await getSignedUrlCached(item.id, 'processed', { force })
+    if (loadToken !== viewerLoadToken) return
+
+    viewerMediaUrl.value = String(url || '').trim()
+    if (!viewerMediaUrl.value) {
+      viewerError.value = 'Unable to load media.'
+    }
+
+    prefetchViewerNeighbors()
+  } catch (err) {
+    if (loadToken !== viewerLoadToken) return
+    viewerMediaUrl.value = ''
+    if (!(await maybeReauth(err))) {
+      viewerError.value = normalizeUploadError(err)
+    } else {
+      viewerError.value = 'Session expired. Please refresh this page.'
+    }
+  } finally {
+    if (loadToken === viewerLoadToken) {
+      viewerLoading.value = false
+    }
+  }
+}
+
+function handleViewerMediaError() {
+  if (!viewerItem.value) return
+  void loadViewerMedia(viewerItem.value, { force: true })
+}
+
 function decodeBase64Url(input) {
   const raw = String(input || '').trim()
   if (!raw) return ''
@@ -445,26 +689,21 @@ function extractSignedTokenExpiry(url) {
 function shouldRefreshPreviewForAuthExpiry(item) {
   const url = String(item?.preview_url || '').trim()
   if (!url) return true
-  const expiresAt = extractSignedTokenExpiry(url)
-  if (!expiresAt) return true
-
-  const now = Math.floor(Date.now() / 1000)
-  return expiresAt <= now + 30
+  return isSignedUrlExpiring(url, 30)
 }
 
-async function resolvePreviewUrl(item) {
+async function resolvePreviewUrl(item, { force = false } = {}) {
   const variant = item.media_type === 'image' ? 'thumb' : 'processed'
   try {
-    const signed = await withSessionRetry(() => signMediaUrl(item.id, variant))
-    return signed.signedUrl || ''
+    return await getSignedUrlCached(item.id, variant, { force })
   } catch {
     return ''
   }
 }
 
-async function signAndPatchPreview(item) {
+async function signAndPatchPreview(item, { force = false } = {}) {
   if (!item?.id) return
-  const url = await resolvePreviewUrl(item)
+  const url = await resolvePreviewUrl(item, { force })
   if (!url) return
 
   const index = galleryItems.value.findIndex((row) => row.id === item.id)
@@ -485,7 +724,7 @@ async function handlePreviewLoadError(item) {
     [mediaId]: retries + 1,
   }
 
-  await signAndPatchPreview(item)
+  await signAndPatchPreview(item, { force: true })
 }
 
 async function hydratePreviews(items, awaitCount) {
@@ -686,6 +925,10 @@ async function deleteMediaItem(item) {
 
   try {
     await withSessionRetry(() => removeMedia(item.id))
+    clearSignedUrlCache(item.id)
+    if (viewerMediaId.value === item.id) {
+      closeViewer()
+    }
     await loadGallery({ reset: true })
   } catch (err) {
     if (!(await maybeReauth(err))) {
@@ -696,7 +939,30 @@ async function deleteMediaItem(item) {
   }
 }
 
+watch(
+  () => [viewerOpen.value, viewerMediaId.value],
+  async ([open, mediaId]) => {
+    if (!open || !mediaId) return
+    const item = galleryItems.value.find((row) => row.id === mediaId)
+    if (!item) {
+      closeViewer()
+      return
+    }
+
+    await loadViewerMedia(item)
+  },
+)
+
+watch(
+  () => viewerOpen.value,
+  (open) => {
+    if (typeof document === 'undefined') return
+    document.body.style.overflow = open ? 'hidden' : ''
+  },
+)
+
 onMounted(async () => {
+  hydrateSignedUrlCacheFromStorage()
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
   window.addEventListener('resize', onResize)
@@ -761,6 +1027,15 @@ onUnmounted(() => {
     authSubscription.unsubscribe()
     authSubscription = null
   }
+  if (signedUrlCachePersistTimer && typeof window !== 'undefined') {
+    window.clearTimeout(signedUrlCachePersistTimer)
+    signedUrlCachePersistTimer = null
+  }
+  signedUrlCache.clear()
+  inFlightSignedUrlByKey.clear()
+  if (typeof document !== 'undefined') {
+    document.body.style.overflow = ''
+  }
 })
 </script>
 
@@ -774,8 +1049,14 @@ onUnmounted(() => {
         <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` before using the gallery.</p>
       </section>
 
-      <section v-else-if="authLoading" class="panel centered">
-        <p>Loading shared gallery…</p>
+      <section v-else-if="authLoading" class="panel gallery-panel">
+        <header class="gallery-header">
+          <div>
+            <h2>Shared media</h2>
+          </div>
+        </header>
+        <p class="sr-only">Loading shared gallery…</p>
+        <LoadingState :count="isMobileViewport ? 6 : 8" />
       </section>
 
       <section v-else-if="!isSignedIn" class="panel centered">
@@ -841,8 +1122,14 @@ onUnmounted(() => {
                 :overlay="isMobileViewport && mobileFeedMode === 'list'"
                 :compact="isMobileViewport && mobileFeedMode === 'grid'" :deleting="Boolean(deletingById[item.id])"
                 :can-remove="canRemove(item)" @remove="deleteMediaItem" @preview-error="handlePreviewLoadError"
-                @preview-loaded="clearPreviewRetry" />
+                @preview-loaded="clearPreviewRetry" @open="openViewer" />
             </div>
+
+            <LoadingState
+              v-if="galleryLoading && galleryItems.length"
+              class="gallery-loading-inline"
+              :count="isMobileViewport ? 4 : 6"
+            />
 
             <button v-if="hasMore" class="btn soft load-more" type="button" :disabled="galleryLoading" @click="loadGallery()">
               {{ galleryLoading ? 'Loading…' : 'Load more' }}
@@ -851,6 +1138,19 @@ onUnmounted(() => {
         </section>
       </template>
     </main>
+
+    <FullScreenViewer
+      :open="viewerOpen"
+      :item="viewerItem"
+      :total="viewerTotal"
+      :media-url="viewerMediaUrl"
+      :loading="viewerLoading"
+      :error="viewerError"
+      @close="closeViewer"
+      @next="showNextViewerItem"
+      @prev="showPrevViewerItem"
+      @media-error="handleViewerMediaError"
+    />
 
     <UploadPanel :open="uploadPanelOpen" :queue-items="queueItems" :selected-count="selectedCount"
       :upload-busy="uploadBusy" :upload-error="uploadError" :capture-window-label="captureWindowLabel"
@@ -1006,6 +1306,21 @@ h2 {
 
 .load-more {
   justify-self: center;
+}
+
+.gallery-loading-inline {
+  margin-top: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
 }
 
 @media (min-width: 700px) {

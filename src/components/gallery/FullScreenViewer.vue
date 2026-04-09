@@ -1,6 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import UploaderBadge from './UploaderBadge.vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps({
   open: {
@@ -10,10 +9,6 @@ const props = defineProps({
   item: {
     type: Object,
     default: null,
-  },
-  index: {
-    type: Number,
-    default: 0,
   },
   total: {
     type: Number,
@@ -31,34 +26,17 @@ const props = defineProps({
     type: String,
     default: '',
   },
-  canDelete: {
-    type: Boolean,
-    default: false,
-  },
-  downloading: {
-    type: Boolean,
-    default: false,
-  },
-  deleting: {
-    type: Boolean,
-    default: false,
-  },
 })
 
-const emit = defineEmits(['close', 'next', 'prev', 'download', 'delete'])
+const emit = defineEmits(['close', 'next', 'prev', 'media-error'])
 
-const zoom = ref(1)
 const touchStartX = ref(null)
+const imageReady = ref(false)
+const imagePreloading = ref(false)
+let imagePreloadToken = 0
 
-const uploaderName = computed(() => {
-  const value = String(props.item?.owner_email || '').trim().toLowerCase()
-  if (!value) return 'Friend'
-  return value.split('@')[0].replace(/[._-]+/g, ' ')
-})
-
-function resetZoom() {
-  zoom.value = 1
-}
+const isImageItem = computed(() => props.item?.media_type === 'image')
+const showImageSkeleton = computed(() => props.loading || (isImageItem.value && imagePreloading.value))
 
 function onTouchStart(event) {
   touchStartX.value = event.touches?.[0]?.clientX ?? null
@@ -68,13 +46,15 @@ function onTouchEnd(event) {
   if (touchStartX.value == null) return
 
   const endX = event.changedTouches?.[0]?.clientX ?? null
-  if (endX == null) return
+  if (endX == null) {
+    touchStartX.value = null
+    return
+  }
 
   const diff = touchStartX.value - endX
   if (Math.abs(diff) > 50) {
     if (diff > 0) emit('next')
     else emit('prev')
-    resetZoom()
   }
 
   touchStartX.value = null
@@ -84,23 +64,58 @@ function onKeydown(event) {
   if (!props.open) return
 
   if (event.key === 'Escape') emit('close')
-  if (event.key === 'ArrowLeft') {
-    emit('prev')
-    resetZoom()
-  }
-  if (event.key === 'ArrowRight') {
-    emit('next')
-    resetZoom()
-  }
+  if (event.key === 'ArrowLeft') emit('prev')
+  if (event.key === 'ArrowRight') emit('next')
 }
 
-function zoomIn() {
-  zoom.value = Math.min(zoom.value + 0.5, 3)
+function startImagePreload(url) {
+  const token = ++imagePreloadToken
+
+  if (!props.open || !isImageItem.value || !url) {
+    imageReady.value = false
+    imagePreloading.value = false
+    return
+  }
+
+  imageReady.value = false
+  imagePreloading.value = true
+
+  const img = new Image()
+  img.decoding = 'async'
+  img.onload = () => {
+    if (token !== imagePreloadToken) return
+    imageReady.value = true
+    imagePreloading.value = false
+  }
+  img.onerror = () => {
+    if (token !== imagePreloadToken) return
+    imageReady.value = false
+    imagePreloading.value = false
+    emit('media-error', props.item)
+  }
+  img.src = url
 }
 
-function zoomOut() {
-  zoom.value = Math.max(zoom.value - 0.5, 1)
-}
+watch(
+  () => [props.open, props.mediaUrl, props.item?.id, props.item?.media_type],
+  ([open, mediaUrl]) => {
+    if (!open) {
+      imagePreloadToken += 1
+      imageReady.value = false
+      imagePreloading.value = false
+      return
+    }
+
+    if (!isImageItem.value) {
+      imageReady.value = false
+      imagePreloading.value = false
+      return
+    }
+
+    startImagePreload(String(mediaUrl || '').trim())
+  },
+  { immediate: true },
+)
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
@@ -112,94 +127,33 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="open && item" class="viewer-overlay" role="dialog" aria-modal="true">
-    <div class="viewer-backdrop" @click="emit('close')"></div>
+  <div v-if="open && item" class="viewer-overlay" role="dialog" aria-modal="true" @click.self="emit('close')">
+    <button class="close-btn" type="button" aria-label="Close viewer" @click="emit('close')">×</button>
 
-    <section class="viewer-shell">
-      <header class="viewer-header">
-        <div class="uploader-wrap">
-          <UploaderBadge :name="uploaderName" :email-key="item.owner_email" size="md" />
-          <div class="uploader-copy">
-            <strong>{{ uploaderName }}</strong>
-            <small>{{ new Date(item.published_at).toLocaleString() }}</small>
-          </div>
-        </div>
+    <div class="viewer-body" @touchstart="onTouchStart" @touchend="onTouchEnd" @click="emit('close')">
+      <div v-if="showImageSkeleton" class="media-skeleton" aria-hidden="true"></div>
 
-        <button class="icon-btn" type="button" @click="emit('close')" aria-label="Close viewer">×</button>
-      </header>
+      <img
+        v-else-if="isImageItem && mediaUrl && imageReady"
+        :src="mediaUrl"
+        :alt="item.original_filename"
+        class="viewer-media"
+        @click.stop
+      />
 
-      <div class="viewer-body" @touchstart="onTouchStart" @touchend="onTouchEnd">
-        <button v-if="total > 1" class="nav-btn left" type="button" @click="emit('prev')" aria-label="Previous media">‹</button>
+      <video
+        v-else-if="item.media_type === 'video' && mediaUrl"
+        :src="mediaUrl"
+        class="viewer-media"
+        controls
+        playsinline
+        preload="metadata"
+        @click.stop
+        @error="emit('media-error', item)"
+      ></video>
 
-        <div class="media-frame">
-          <div v-if="loading" class="media-note">Loading media…</div>
-
-          <img
-            v-else-if="item.media_type === 'image' && mediaUrl"
-            :src="mediaUrl"
-            :alt="item.original_filename"
-            :style="{ transform: `scale(${zoom})` }"
-          />
-
-          <video
-            v-else-if="item.media_type === 'video' && mediaUrl"
-            :src="mediaUrl"
-            controls
-            playsinline
-            preload="metadata"
-          ></video>
-
-          <div v-else class="media-note">Preview unavailable</div>
-        </div>
-
-        <button v-if="total > 1" class="nav-btn right" type="button" @click="emit('next')" aria-label="Next media">›</button>
-      </div>
-
-      <footer class="viewer-footer">
-        <div class="footer-left">
-          <strong class="filename">{{ item.original_filename }}</strong>
-          <small>{{ index + 1 }} / {{ total }}</small>
-          <p v-if="error" class="error-text">{{ error }}</p>
-        </div>
-
-        <div class="footer-actions">
-          <button
-            v-if="item.media_type === 'image'"
-            class="icon-btn"
-            type="button"
-            :disabled="zoom <= 1"
-            @click="zoomOut"
-            aria-label="Zoom out"
-          >
-            −
-          </button>
-          <button
-            v-if="item.media_type === 'image'"
-            class="icon-btn"
-            type="button"
-            :disabled="zoom >= 3"
-            @click="zoomIn"
-            aria-label="Zoom in"
-          >
-            +
-          </button>
-
-          <button class="btn primary" type="button" :disabled="downloading" @click="emit('download', item)">
-            {{ downloading ? 'Downloading…' : 'Download' }}
-          </button>
-
-          <button
-            v-if="canDelete"
-            class="btn danger"
-            type="button"
-            :disabled="deleting"
-            @click="emit('delete', item)"
-          >
-            {{ deleting ? 'Removing…' : 'Remove' }}
-          </button>
-        </div>
-      </footer>
-    </section>
+      <div v-else class="media-note">{{ error || 'Unable to load media.' }}</div>
+    </div>
   </div>
 </template>
 
@@ -207,191 +161,108 @@ onUnmounted(() => {
 .viewer-overlay {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  z-index: 1200;
   display: grid;
   place-items: center;
+  background:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--bg-white) 14%, transparent) 1px, transparent 0),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--bg-white) 38%, transparent) 0%,
+      color-mix(in srgb, var(--bg-white) 24%, transparent) 100%
+    );
+  background-size: 3px 3px, 100% 100%;
   padding:
     calc(10px + env(safe-area-inset-top, 0px))
-    calc(10px + env(safe-area-inset-right, 0px))
+    calc(14px + env(safe-area-inset-right, 0px))
     calc(10px + env(safe-area-inset-bottom, 0px))
-    calc(10px + env(safe-area-inset-left, 0px));
-}
-
-.viewer-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(5, 10, 12, 0.82);
-}
-
-.viewer-shell {
-  position: relative;
-  width: min(100%, 940px);
-  max-height: calc(100dvh - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-  background: #fff;
-  border-radius: 14px;
-  border: 1px solid rgba(92, 138, 150, 0.35);
-  overflow: hidden;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-}
-
-.viewer-header,
-.viewer-footer {
-  padding: 10px;
-  border-bottom: 1px solid rgba(92, 138, 150, 0.22);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-
-.viewer-footer {
-  border-bottom: 0;
-  border-top: 1px solid rgba(92, 138, 150, 0.22);
-}
-
-.uploader-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.uploader-copy strong,
-.uploader-copy small {
-  display: block;
-}
-
-.uploader-copy small {
-  color: var(--warm-brown-muted);
-  font-size: 0.75rem;
+    calc(14px + env(safe-area-inset-left, 0px));
 }
 
 .viewer-body {
-  min-height: 260px;
+  width: 100%;
+  height: 100%;
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  background: #f3f6f8;
+  place-items: center;
   touch-action: pan-x pinch-zoom;
 }
 
-.media-frame {
-  border-radius: 10px;
-  overflow: hidden;
-  background: #fff;
-  min-height: 220px;
-  display: grid;
-  place-items: center;
+.viewer-media,
+.media-skeleton {
+  max-width: min(96vw, 1240px);
+  max-height: calc(100dvh - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  width: auto;
+  height: auto;
 }
 
-.media-frame img,
-.media-frame video {
-  width: 100%;
-  max-height: min(68vh, 560px);
+.viewer-media {
   object-fit: contain;
   display: block;
-  background: #101517;
-  transition: transform 0.2s ease;
+}
+
+.media-skeleton {
+  width: min(92vw, 1120px);
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--bg-white) 62%, transparent) 20%,
+    color-mix(in srgb, var(--bg-white) 82%, transparent) 40%,
+    color-mix(in srgb, var(--bg-white) 62%, transparent) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.15s linear infinite;
 }
 
 .media-note {
-  color: var(--warm-brown-muted);
-  font-size: 0.86rem;
+  color: var(--bg-cream);
+  font-size: 0.95rem;
+  text-shadow: 0 2px 6px color-mix(in srgb, var(--forest) 55%, transparent);
 }
 
-.filename {
-  display: block;
-  max-width: 280px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.footer-left small {
-  color: var(--warm-brown-muted);
-  font-size: 0.76rem;
-}
-
-.footer-left p {
-  margin: 2px 0 0;
-}
-
-.footer-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btn {
-  border: 1px solid transparent;
-  border-radius: 999px;
-  min-height: 44px;
-  padding: 8px 12px;
-  font-weight: 650;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.btn:disabled,
-.icon-btn:disabled,
-.nav-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn.primary {
-  background: var(--forest);
-  color: #fff;
-}
-
-.btn.danger {
-  border-color: rgba(185, 64, 64, 0.3);
-  background: #fff1f1;
-  color: #8e2525;
-}
-
-.icon-btn,
-.nav-btn {
-  border: 1px solid rgba(92, 138, 150, 0.28);
-  background: #fff;
-  color: #2f4650;
+.close-btn {
+  position: absolute;
+  z-index: 1;
+  border: 1px solid color-mix(in srgb, var(--bg-white) 50%, transparent);
+  background: color-mix(in srgb, var(--forest) 42%, transparent);
+  color: var(--bg-white);
   border-radius: 999px;
   min-width: 44px;
   min-height: 44px;
-  font-size: 1rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
   line-height: 1;
   cursor: pointer;
   touch-action: manipulation;
+  backdrop-filter: blur(2px);
 }
 
-.nav-btn {
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+.close-btn {
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  right: calc(14px + env(safe-area-inset-right, 0px));
 }
 
-.error-text {
-  color: #a03333;
-  font-size: 0.8rem;
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
 }
 
 @media (max-width: 760px) {
-  .viewer-body {
-    grid-template-columns: 1fr;
+  .close-btn {
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 1.2rem;
   }
 
-  .nav-btn {
-    display: none;
-  }
-
-  .viewer-footer {
-    align-items: start;
-    flex-direction: column;
-  }
-
-  .footer-left,
-  .footer-actions {
-    width: 100%;
+  .media-skeleton {
+    width: min(94vw, 900px);
   }
 }
 </style>

@@ -25,7 +25,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['remove', 'preview-error', 'preview-loaded'])
+const emit = defineEmits(['open', 'remove', 'preview-error', 'preview-loaded'])
 
 const uploaderName = computed(() => {
   const value = String(props.item?.owner_email || '').trim().toLowerCase()
@@ -53,25 +53,32 @@ const relativeTime = computed(() => {
   <article class="media-card" :class="{ 'overlay-card': overlay, 'compact-card': compact }">
     <div class="thumb-wrap">
       <span v-if="!item.preview_url" class="thumb-skeleton" aria-hidden="true"></span>
-      <img
-        v-if="item.media_type === 'image' && item.preview_url"
-        :src="item.preview_url"
-        :alt="item.original_filename"
-        loading="lazy"
-        decoding="async"
-        @error="emit('preview-error', item)"
-        @load="emit('preview-loaded', item)"
-      />
-      <video
-        v-else-if="item.media_type === 'video' && item.preview_url"
-        :src="item.preview_url"
-        preload="metadata"
-        muted
-        playsinline
-        @error="emit('preview-error', item)"
-        @loadedmetadata="emit('preview-loaded', item)"
-      ></video>
-      <span v-else class="thumb-empty">Preview unavailable</span>
+      <button
+        class="preview-trigger"
+        type="button"
+        :aria-label="`Open ${item.media_type} viewer`"
+        @click="emit('open', item)"
+      >
+        <img
+          v-if="item.media_type === 'image' && item.preview_url"
+          :src="item.preview_url"
+          :alt="item.original_filename"
+          loading="lazy"
+          decoding="async"
+          @error="emit('preview-error', item)"
+          @load="emit('preview-loaded', item)"
+        />
+        <video
+          v-else-if="item.media_type === 'video' && item.preview_url"
+          :src="item.preview_url"
+          preload="metadata"
+          muted
+          playsinline
+          @error="emit('preview-error', item)"
+          @loadedmetadata="emit('preview-loaded', item)"
+        ></video>
+        <span v-else class="thumb-empty">Preview unavailable</span>
+      </button>
 
       <button
         v-if="compact && canRemove"
@@ -79,7 +86,7 @@ const relativeTime = computed(() => {
         type="button"
         :disabled="deleting"
         :aria-label="deleting ? 'Removing media' : 'Remove media'"
-        @click="emit('remove', item)"
+        @click.stop="emit('remove', item)"
       >
         <span v-if="deleting">…</span>
         <span v-else aria-hidden="true">🗑</span>
@@ -103,7 +110,7 @@ const relativeTime = computed(() => {
             type="button"
             :disabled="deleting"
             :aria-label="deleting ? 'Removing media' : 'Remove media'"
-            @click="emit('remove', item)"
+            @click.stop="emit('remove', item)"
           >
             <span v-if="deleting">…</span>
             <span v-else aria-hidden="true">🗑</span>
@@ -129,6 +136,15 @@ const relativeTime = computed(() => {
 .thumb-wrap {
   background: #f1f5f7;
   position: relative;
+}
+
+.preview-trigger {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
 }
 
 .thumb-wrap img,
