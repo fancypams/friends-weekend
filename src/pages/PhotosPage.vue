@@ -1400,8 +1400,8 @@ onUnmounted(() => {
           <div>
             <h2 class="welcome-heading">Shared media</h2>
             <p class="welcome-blurb gallery-intro">
-              We’re collecting memories all day as the weekend unfolds. Share photos and videos anytime, and each
-              night at 9:00 PM Pacific we reveal the day’s gallery together.
+              Upload photos and videos from the trip dates only (July 31-Aug 4). The gallery unlocks when the trip
+              starts, then new uploads reveal each night at 9:00 PM Pacific.
             </p>
           </div>
         </header>
@@ -1420,8 +1420,8 @@ onUnmounted(() => {
             <div>
               <h2 class="welcome-heading">Shared media</h2>
               <p class="welcome-blurb gallery-intro">
-                We’re collecting memories all day as the weekend unfolds. Share photos and videos anytime, and each
-                night at 9:00 PM Pacific we reveal the day’s gallery together.
+                Upload photos and videos from the trip dates only (July 31-Aug 4). The gallery unlocks when the trip
+                starts, then new uploads reveal each night at 9:00 PM Pacific.
               </p>
               <p v-if="forceCensoredPreview" class="debug-note">
                 Preview mode is on: other people's uploads are intentionally shown as locked.

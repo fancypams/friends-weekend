@@ -5,8 +5,10 @@ const emit = defineEmits(['uploadClick'])
 <template>
   <section class="empty-state">
     <div class="empty-icon" aria-hidden="true">⬆</div>
-    <h3>No media yet</h3>
-    <p>Start sharing memories from your trip by uploading your first photo or video.</p>
+    <h3>Gallery locked for now</h3>
+    <p>
+      Upload photos and videos taken during July 31-Aug 4. The shared gallery opens when the trip starts on July 31.
+    </p>
     <button class="btn primary" type="button" @click="emit('uploadClick')">Upload First Media</button>
   </section>
 </template>
