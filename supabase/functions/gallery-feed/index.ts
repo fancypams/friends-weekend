@@ -13,6 +13,7 @@ type MediaAssetListRow = {
   media_type: 'image' | 'video'
   mime_type: string
   original_filename: string
+  bytes: number
   status: 'published'
   captured_at: string | null
   capture_source: string | null
@@ -50,7 +51,7 @@ Deno.serve(async (req) => {
   let query = auth.admin
     .from('media_assets')
     .select(
-      'id,owner_id,media_type,mime_type,original_filename,status,captured_at,capture_source,processed_path,thumbnail_path,poster_path,created_at,published_at',
+      'id,owner_id,media_type,mime_type,original_filename,bytes,status,captured_at,capture_source,processed_path,thumbnail_path,poster_path,created_at,published_at',
     )
     .eq('status', 'published')
     .is('removed_at', null)

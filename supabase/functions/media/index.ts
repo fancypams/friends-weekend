@@ -16,8 +16,14 @@ type MediaRow = {
 
 function parseMediaId(req: Request) {
   const parts = new URL(req.url).pathname.split('/').filter(Boolean)
-  if (parts.length < 4) return null
-  return decodeURIComponent(parts[3] ?? '').trim()
+  if (!parts.length) return null
+
+  // Support both runtime path shapes:
+  // - /functions/v1/media/:id
+  // - /media/:id
+  const tail = decodeURIComponent(parts[parts.length - 1] ?? '').trim()
+  if (!tail || tail === 'media') return null
+  return tail
 }
 
 Deno.serve(async (req) => {

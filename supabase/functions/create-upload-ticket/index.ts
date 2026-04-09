@@ -1,5 +1,5 @@
 import { handleOptions } from '../_shared/cors.ts'
-import { assertMethod, badRequest, serverError, json } from '../_shared/http.ts'
+import { assertMethod, badRequest, conflict, serverError, json } from '../_shared/http.ts'
 import { requireAuth } from '../_shared/auth.ts'
 import {
   ALLOWED_MIME,
@@ -61,6 +61,24 @@ Deno.serve(async (req) => {
 
   if (mediaType === 'video' && bytes > VIDEO_MAX_BYTES) {
     return badRequest(`Video exceeds max size of ${VIDEO_MAX_BYTES} bytes`)
+  }
+
+  const { data: duplicate, error: duplicateErr } = await auth.admin
+    .from('media_assets')
+    .select('id')
+    .eq('original_filename', filename)
+    .eq('bytes', bytes)
+    .in('status', ['uploading', 'processing', 'published'])
+    .is('removed_at', null)
+    .limit(1)
+    .maybeSingle()
+
+  if (duplicateErr) {
+    return serverError('Failed to check for duplicate media', duplicateErr.message)
+  }
+
+  if (duplicate?.id) {
+    return conflict('Duplicate media already exists')
   }
 
   const { data: allowedByQuota, error: quotaErr } = await auth.admin

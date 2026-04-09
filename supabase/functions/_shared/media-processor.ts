@@ -41,6 +41,7 @@ export async function processOneMediaAsset(
     asset.id,
     asset.media_type,
     asset.mime_type,
+    asset.original_path,
   )
 
   const copyToProcessed = await admin.storage
