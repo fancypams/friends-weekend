@@ -4,7 +4,7 @@ import { requireAuth } from '../_shared/auth.ts'
 
 const SPREADSHEET_ID = '10Vb7iKPjZC2THOPiMf50MtKMM5K3LQ70VTVdBCuSdlo'
 const SHEET_NAME = 'Groceries'
-const VALID_FAMILIES = ['Ekanger', 'Dzambo', 'Schambach', 'Montanez', 'Habibi', 'Donaldson']
+const VALID_FAMILIES = ['Ekanger', 'Dzambo', 'Schambach', 'Montañez', 'Habibi', 'Donaldson']
 
 async function getGoogleAccessToken(): Promise<string> {
   const rawKey = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_KEY')

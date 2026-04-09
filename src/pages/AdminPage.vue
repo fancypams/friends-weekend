@@ -4,6 +4,7 @@ import HeroHeader from '../components/HeroHeader.vue'
 import { getAuthState } from '../lib/authAccess'
 import { bypassAuth } from '../lib/supabaseClient'
 import { inviteAndSend, listInvites, removeInvite, upsertInvite } from '../lib/photosApi'
+import { FAMILIES } from '../lib/families'
 
 const authLoading = ref(true)
 const canManage = ref(false)
@@ -16,6 +17,7 @@ const successMsg = ref('')
 const form = ref({
   email: '',
   display_name: '',
+  family: '',
   role: 'member',
   active: true,
 })
@@ -23,6 +25,15 @@ const form = ref({
 const sortedInvites = computed(() => (
   [...invites.value].sort((a, b) => String(a.email || '').localeCompare(String(b.email || '')))
 ))
+
+const familyOptions = computed(() => {
+  const set = new Set(FAMILIES)
+  for (const row of invites.value) {
+    const value = String(row?.family || '').trim()
+    if (value) set.add(value)
+  }
+  return [...set]
+})
 
 const canSubmit = computed(() => {
   const email = String(form.value.email || '').trim()
@@ -38,6 +49,7 @@ function normalizePayload() {
   return {
     email: String(form.value.email || '').trim().toLowerCase(),
     display_name: String(form.value.display_name || '').trim() || null,
+    family: String(form.value.family || '').trim() || null,
     role: form.value.role === 'admin' ? 'admin' : 'member',
     active: Boolean(form.value.active),
   }
@@ -94,6 +106,7 @@ async function resend(row) {
     await inviteAndSend({
       email: row.email,
       display_name: row.display_name || null,
+      family: row.family || null,
       role: row.role || 'member',
       active: row.active !== false,
     })
@@ -176,6 +189,16 @@ onMounted(async () => {
             </label>
 
             <label>
+              <span>Family</span>
+              <select v-model="form.family">
+                <option value="">Select family</option>
+                <option v-for="family in familyOptions" :key="family" :value="family">
+                  {{ family }}
+                </option>
+              </select>
+            </label>
+
+            <label>
               <span>Role</span>
               <select v-model="form.role">
                 <option value="member">Member</option>
@@ -216,6 +239,7 @@ onMounted(async () => {
               <tr>
                 <th>Email</th>
                 <th>Name</th>
+                <th>Family</th>
                 <th>Role</th>
                 <th>Active</th>
                 <th>Actions</th>
@@ -225,6 +249,7 @@ onMounted(async () => {
               <tr v-for="row in sortedInvites" :key="row.email">
                 <td>{{ row.email }}</td>
                 <td>{{ row.display_name || '—' }}</td>
+                <td>{{ row.family || '—' }}</td>
                 <td>{{ row.role }}</td>
                 <td>{{ row.active ? 'Yes' : 'No' }}</td>
                 <td class="row-actions">

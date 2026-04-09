@@ -6,6 +6,7 @@ import { audit } from '../_shared/audit.ts'
 type InvitePayload = {
   email?: string
   display_name?: string
+  family?: string
   role?: 'admin' | 'member'
   active?: boolean
 }
@@ -19,10 +20,17 @@ function normalizeDisplayName(value: string | undefined) {
   return trimmed || null
 }
 
+function normalizeFamily(value: string | undefined) {
+  const trimmed = String(value ?? '').trim()
+  return trimmed || null
+}
+
 function parseEmailFromPath(req: Request) {
   const parts = new URL(req.url).pathname.split('/').filter(Boolean)
-  if (parts.length < 4) return null
-  return decodeURIComponent(parts[3] ?? '').trim().toLowerCase()
+  if (!parts.length) return null
+  const candidate = decodeURIComponent(parts[parts.length - 1] ?? '').trim().toLowerCase()
+  if (!candidate || candidate === 'invites') return null
+  return candidate
 }
 
 Deno.serve(async (req) => {
@@ -38,7 +46,7 @@ Deno.serve(async (req) => {
   if (req.method === 'GET') {
     const { data, error } = await auth.admin
       .from('invite_allowlist')
-      .select('email,display_name,role,active,invited_by,created_at,updated_at')
+      .select('email,display_name,family,role,active,invited_by,created_at,updated_at')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -58,6 +66,7 @@ Deno.serve(async (req) => {
 
     const email = normalizeEmail(String(payload.email ?? ''))
     const displayName = normalizeDisplayName(payload.display_name)
+    const family = normalizeFamily(payload.family)
     const role = payload.role ?? 'member'
     const active = payload.active ?? true
 
@@ -75,13 +84,14 @@ Deno.serve(async (req) => {
         {
           email,
           display_name: displayName,
+          family,
           role,
           active,
           invited_by: auth.user.id,
         },
         { onConflict: 'email' },
       )
-      .select('email,display_name,role,active,invited_by,created_at,updated_at')
+      .select('email,display_name,family,role,active,invited_by,created_at,updated_at')
       .single()
 
     if (error || !data) {
@@ -95,6 +105,7 @@ Deno.serve(async (req) => {
       entityId: data.email,
       details: {
         display_name: displayName,
+        family,
         role,
         active,
       },

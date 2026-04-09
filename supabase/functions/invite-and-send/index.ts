@@ -6,6 +6,7 @@ import { audit } from '../_shared/audit.ts'
 type InviteAndSendPayload = {
   email?: string
   display_name?: string
+  family?: string
   role?: 'admin' | 'member'
   active?: boolean
   redirect_to?: string
@@ -17,6 +18,11 @@ function normalizeEmail(value: string) {
 }
 
 function normalizeDisplayName(value: string | undefined) {
+  const trimmed = String(value ?? '').trim()
+  return trimmed || null
+}
+
+function normalizeFamily(value: string | undefined) {
   const trimmed = String(value ?? '').trim()
   return trimmed || null
 }
@@ -212,6 +218,7 @@ Deno.serve(async (req) => {
 
   const email = normalizeEmail(String(payload.email ?? ''))
   const displayName = normalizeDisplayName(payload.display_name)
+  const family = normalizeFamily(payload.family)
   const role = normalizeRole(payload.role)
   const active = payload.active ?? true
 
@@ -225,13 +232,14 @@ Deno.serve(async (req) => {
       {
         email,
         display_name: displayName,
+        family,
         role,
         active,
         invited_by: auth.user.id,
       },
       { onConflict: 'email' },
     )
-    .select('email,display_name,role,active,invited_by,created_at,updated_at')
+    .select('email,display_name,family,role,active,invited_by,created_at,updated_at')
     .single()
 
   if (inviteErr || !invite) {
@@ -294,6 +302,7 @@ Deno.serve(async (req) => {
     entityId: invite.email,
     details: {
       display_name: displayName,
+      family,
       role: invite.role,
       active: invite.active,
       resend_email_id: emailId,

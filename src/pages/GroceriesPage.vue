@@ -2,10 +2,10 @@
 import { ref, computed, onMounted } from 'vue'
 import HeroHeader from '../components/HeroHeader.vue'
 import { supabase, supabaseAnonKey, bypassAuth, supabaseFunctionUrl } from '../lib/supabaseClient'
+import { FAMILIES } from '../lib/families'
 
 const SHEET_ID = '10Vb7iKPjZC2THOPiMf50MtKMM5K3LQ70VTVdBCuSdlo'
 const SHEET_NAME = 'Groceries'
-const FAMILIES = ['Ekanger', 'Dzambo', 'Schambach', 'Montanez', 'Habibi', 'Donaldson']
 
 
 // ── List state ──
