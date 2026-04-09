@@ -41,6 +41,12 @@
   --warm-brown:       var(--terracotta);
   --warm-brown-muted: var(--driftwood);
   --warm-text-dark:   var(--forest);
+
+  /* ── Shared Page Shell ── */
+  --page-shell-max-width: 1080px;
+  --page-shell-top: 32px;
+  --page-shell-x: 24px;
+  --page-shell-bottom: 80px;
 }
 
 *, *::before, *::after {
@@ -66,4 +72,18 @@ body {
 
 h1, p {
   margin: 0;
+}
+
+.page-main {
+  max-width: var(--page-shell-max-width);
+  margin: 0 auto;
+  padding: var(--page-shell-top) var(--page-shell-x) var(--page-shell-bottom);
+}
+
+@media (max-width: 700px) {
+  .page-main {
+    --page-shell-top: 16px;
+    --page-shell-x: 10px;
+    --page-shell-bottom: 64px;
+  }
 }

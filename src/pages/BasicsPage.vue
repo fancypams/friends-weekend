@@ -110,7 +110,7 @@ onMounted(async () => {
   <div class="basics-page">
     <HeroHeader show-back />
 
-    <main class="basics-body">
+    <main class="basics-body page-main">
       <div v-if="loading" class="state-msg">
         <div class="spinner"></div>
         Loading…
@@ -203,9 +203,7 @@ onMounted(async () => {
 
 /* ── Body ── */
 .basics-body {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 40px 24px 64px;
+  padding-bottom: 64px;
 }
 
 /* ── Section ── */

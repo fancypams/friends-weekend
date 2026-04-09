@@ -90,7 +90,7 @@ onMounted(async () => {
   <div class="itinerary-page">
     <HeroHeader show-back />
 
-    <main class="itinerary-body">
+    <main class="itinerary-body page-main">
       <div v-if="loading" class="state-msg">
         <div class="spinner" />
         Loading itinerary…
@@ -156,9 +156,7 @@ onMounted(async () => {
 
 /* ── Body ── */
 .itinerary-body {
-  max-width: 1080px;
-  margin: 15px auto;
-  padding: 40px 24px 80px;
+  padding-bottom: 80px;
 }
 
 /* ── Two-column layout ── */
@@ -321,7 +319,7 @@ onMounted(async () => {
     width: calc(20px + 4px);
   }
   .itinerary-body {
-    padding: 0 10px 60px;
+    padding-bottom: 60px;
   }
   .itinerary-layout {
     grid-template-columns: 90px 1fr;

@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { globalSignOut } from '../lib/authAccess'
+import PrimaryNav from './PrimaryNav.vue'
 
 defineProps({
   showBack: {
@@ -16,6 +17,8 @@ let tickTimer = null
 
 const menuOpen = ref(false)
 const router = useRouter()
+const route = useRoute()
+const windowWidth = ref(typeof window === 'undefined' ? 0 : window.innerWidth)
 
 // ── Cloud animation ──
 const headerRef = ref(null)
@@ -93,6 +96,18 @@ const countdownUnits = computed(() => [
   { key: 'seconds', label: 'Seconds', value: countdown.value.seconds },
 ])
 
+const showDesktopNav = computed(() => (
+  route.path !== '/login'
+  && route.path !== '/'
+  && windowWidth.value >= 900
+))
+
+const showHamburger = computed(() => {
+  if (route.path === '/login') return false
+  if (route.path === '/' && windowWidth.value >= 900) return false
+  return !showDesktopNav.value
+})
+
 async function signOutFromMenu() {
   menuOpen.value = false
   await globalSignOut().catch(() => {})
@@ -103,27 +118,38 @@ function updateNow() {
   nowMs.value = Date.now()
 }
 
+function updateWindowWidth() {
+  if (typeof window === 'undefined') return
+  windowWidth.value = window.innerWidth
+  if (!showHamburger.value) {
+    menuOpen.value = false
+  }
+}
+
 onMounted(() => {
   updateNow()
+  updateWindowWidth()
   tickTimer = setInterval(updateNow, 1000)
   animFrame = requestAnimationFrame(animateClouds)
+  window.addEventListener('resize', updateWindowWidth)
 })
 
 onBeforeUnmount(() => {
   if (tickTimer) clearInterval(tickTimer)
   if (animFrame) cancelAnimationFrame(animFrame)
+  window.removeEventListener('resize', updateWindowWidth)
 })
 </script>
 
 <template>
   <header ref="headerRef" class="hero-header" @mousemove="onMouseMove">
     <!-- Hamburger button -->
-    <button class="hamburger" :class="{ open: menuOpen }" @click="menuOpen = !menuOpen" aria-label="Toggle menu">
+    <button v-if="showHamburger" class="hamburger" :class="{ open: menuOpen }" @click="menuOpen = !menuOpen" aria-label="Toggle menu">
       <span /><span /><span />
     </button>
 
     <!-- Dropdown menu -->
-    <nav v-if="menuOpen" class="nav-dropdown">
+    <nav v-if="showHamburger && menuOpen" class="nav-dropdown">
       <router-link to="/" class="nav-item" @click="menuOpen = false">Home</router-link>
       <router-link to="/basics" class="nav-item" @click="menuOpen = false">Basics</router-link>
       <router-link to="/itinerary" class="nav-item" @click="menuOpen = false">Itinerary</router-link>
@@ -154,6 +180,10 @@ onBeforeUnmount(() => {
 
     <!-- Clouds: in front of text -->
     <img class="clouds-front" src="../assets/cloud-large.png" alt="" aria-hidden="true" :style="cloudFrontStyle" />
+
+    <div v-if="showDesktopNav" class="hero-primary-nav">
+      <PrimaryNav />
+    </div>
   </header>
 </template>
 
@@ -329,6 +359,14 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
+.hero-primary-nav {
+  position: relative;
+  z-index: 6;
+  max-width: var(--page-shell-max-width);
+  margin: 12px auto 0;
+  padding: 0 var(--page-shell-x);
+}
+
 @media (max-width: 768px) {
   .hero-content {
     padding: 16px 24px 64px;
@@ -365,5 +403,10 @@ onBeforeUnmount(() => {
   .count-value {
     font-size: clamp(14px, 4vw, 18px);
   }
+
+  .hero-primary-nav {
+    margin-top: 8px;
+  }
 }
+
 </style>

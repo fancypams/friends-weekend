@@ -215,7 +215,7 @@ onMounted(async () => {
   <div class="groceries-page">
     <HeroHeader show-back />
 
-    <main class="groceries-body">
+    <main class="groceries-body page-main">
 
       <!-- ── Add form ── -->
       <section class="form-card">
@@ -375,9 +375,7 @@ onMounted(async () => {
 }
 
 .groceries-body {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 40px 24px 80px;
+  padding-bottom: 80px;
   display: flex;
   flex-direction: column;
   gap: 40px;

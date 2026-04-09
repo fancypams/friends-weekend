@@ -104,7 +104,7 @@ function toggleCategory(i) {
   <div class="pretrip-page">
     <HeroHeader show-back />
 
-    <main class="pretrip-body">
+    <main class="pretrip-body page-main">
       <div v-if="loading" class="state-msg">
         <div class="spinner"></div>
         Loading…
@@ -180,9 +180,7 @@ function toggleCategory(i) {
 }
 
 .pretrip-body {
-  max-width: 1080px;
-  margin: 15px auto;
-  padding: 40px 24px 80px;
+  padding-bottom: 80px;
 }
 
 /* ── Accordion ── */
@@ -387,9 +385,6 @@ function toggleCategory(i) {
 
 /* ── Mobile ── */
 @media (max-width: 600px) {
-  .pretrip-body {
-    padding: 0 10px 60px;
-  }
   .accordion-header {
     padding: 14px 16px;
   }
