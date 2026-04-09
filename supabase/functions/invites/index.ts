@@ -5,12 +5,18 @@ import { audit } from '../_shared/audit.ts'
 
 type InvitePayload = {
   email?: string
+  display_name?: string
   role?: 'admin' | 'member'
   active?: boolean
 }
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase()
+}
+
+function normalizeDisplayName(value: string | undefined) {
+  const trimmed = String(value ?? '').trim()
+  return trimmed || null
 }
 
 function parseEmailFromPath(req: Request) {
@@ -32,7 +38,7 @@ Deno.serve(async (req) => {
   if (req.method === 'GET') {
     const { data, error } = await auth.admin
       .from('invite_allowlist')
-      .select('email,role,active,invited_by,created_at,updated_at')
+      .select('email,display_name,role,active,invited_by,created_at,updated_at')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -51,6 +57,7 @@ Deno.serve(async (req) => {
     }
 
     const email = normalizeEmail(String(payload.email ?? ''))
+    const displayName = normalizeDisplayName(payload.display_name)
     const role = payload.role ?? 'member'
     const active = payload.active ?? true
 
@@ -67,13 +74,14 @@ Deno.serve(async (req) => {
       .upsert(
         {
           email,
+          display_name: displayName,
           role,
           active,
           invited_by: auth.user.id,
         },
         { onConflict: 'email' },
       )
-      .select('email,role,active,invited_by,created_at,updated_at')
+      .select('email,display_name,role,active,invited_by,created_at,updated_at')
       .single()
 
     if (error || !data) {
@@ -86,6 +94,7 @@ Deno.serve(async (req) => {
       entity: 'invite_allowlist',
       entityId: data.email,
       details: {
+        display_name: displayName,
         role,
         active,
       },
