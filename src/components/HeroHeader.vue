@@ -98,13 +98,11 @@ const countdownUnits = computed(() => [
 
 const showDesktopNav = computed(() => (
   route.path !== '/login'
-  && route.path !== '/'
   && windowWidth.value >= 900
 ))
 
 const showHamburger = computed(() => {
   if (route.path === '/login') return false
-  if (route.path === '/' && windowWidth.value >= 900) return false
   return !showDesktopNav.value
 })
 
@@ -292,7 +290,7 @@ onBeforeUnmount(() => {
   padding: 20px 105px;
   display: flex;
   flex-direction: column;
-  align-items: start;
+  align-items: center;
 }
 
 .hero-label {
@@ -303,7 +301,7 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   color: var(--sky-label);
   margin: 0 0 4px;
-  align-self: start;
+  align-self: center;
 }
 
 .hero-city {
@@ -324,7 +322,7 @@ onBeforeUnmount(() => {
   align-items: baseline;
   gap: 6px;
   flex-wrap: wrap;
-  align-self: start;
+  align-self: center;
   position: relative;
   z-index: 5;
 }

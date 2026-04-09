@@ -260,10 +260,10 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--forest);
   text-decoration: none;
   line-height: 1.3;

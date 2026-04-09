@@ -596,7 +596,8 @@ onMounted(async () => {
 }
 
 .row-item {
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 20px;
   font-weight: 600;
   color: var(--forest);
 }

@@ -269,7 +269,7 @@ onMounted(async () => {
 }
 
 .property-name {
-  font-family: var(--font-playfair);
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 700;
   color: var(--driftwood);
@@ -292,9 +292,9 @@ onMounted(async () => {
 .detail-icon { font-size: 17px; flex-shrink: 0; margin-top: 1px; }
 
 .code {
-  font-family: var(--font-goldman);
-  font-weight: 700;
-  font-size: 18px;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 16px;
   letter-spacing: 3px;
   color: var(--forest);
 }

@@ -16,7 +16,7 @@ const links = [
   { to: '/whales', label: 'Whale Sightings' },
 ]
 
-const showDesktopNav = computed(() => route.path !== '/login' && route.path !== '/')
+const showDesktopNav = computed(() => route.path !== '/login')
 
 function isActivePath(path) {
   if (path === '/') return route.path === '/'

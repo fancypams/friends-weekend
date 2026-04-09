@@ -302,10 +302,10 @@ function toggleCategory(i) {
 .item-row:last-child { border-bottom: none; }
 
 .item-title {
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--forest);
   line-height: 1.3;
   flex: 1;
