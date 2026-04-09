@@ -31,6 +31,9 @@ const filtered = computed(() => {
   )
 })
 
+const leftCol = computed(() => filtered.value.filter((_, i) => i % 2 === 0))
+const rightCol = computed(() => filtered.value.filter((_, i) => i % 2 === 1))
+
 function toggle(id) {
   expandedId.value = expandedId.value === id ? null : id
 }
@@ -61,42 +64,44 @@ function toggle(id) {
       </div>
 
       <div v-if="filtered.length" class="story-grid">
-        <article
-          v-for="story in filtered"
-          :key="story.id"
-          class="story-card"
-          :class="{ 'is-expanded': expandedId === story.id }"
-          :style="{ '--border-color': borderColor(story.neighborhood) }"
-          :aria-expanded="expandedId === story.id"
-          @click="toggle(story.id)"
-        >
-          <div class="story-header">
-            <div class="story-header-text">
-              <h2 class="story-location">{{ story.location }}</h2>
-              <span class="story-neighborhood">{{ story.neighborhood }}</span>
+        <div v-for="col in [leftCol, rightCol]" :key="col === leftCol ? 'left' : 'right'" class="story-col">
+          <article
+            v-for="story in col"
+            :key="story.id"
+            class="story-card"
+            :class="{ 'is-expanded': expandedId === story.id }"
+            :style="{ '--border-color': borderColor(story.neighborhood) }"
+            :aria-expanded="expandedId === story.id"
+            @click="toggle(story.id)"
+          >
+            <div class="story-header">
+              <div class="story-header-text">
+                <h2 class="story-location">{{ story.location }}</h2>
+                <span class="story-neighborhood">{{ story.neighborhood }}</span>
+              </div>
+              <svg
+                class="toggle-chevron"
+                :class="{ open: expandedId === story.id }"
+                width="14" height="14" viewBox="0 0 14 14" fill="none"
+                aria-hidden="true"
+              >
+                <path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
             </div>
-            <svg
-              class="toggle-chevron"
-              :class="{ open: expandedId === story.id }"
-              width="14" height="14" viewBox="0 0 14 14" fill="none"
-              aria-hidden="true"
-            >
-              <path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </div>
 
-          <p class="story-description">{{ story.description }}</p>
+            <p class="story-description">{{ story.description }}</p>
 
-          <Transition name="expand">
-            <div v-if="expandedId === story.id" class="story-full">
-              <p
-                v-for="(para, pi) in story.story.split('\n\n')"
-                :key="pi"
-                class="story-para"
-              >{{ para }}</p>
-            </div>
-          </Transition>
-        </article>
+            <Transition name="expand">
+              <div v-if="expandedId === story.id" class="story-full">
+                <p
+                  v-for="(para, pi) in story.story.split('\n\n')"
+                  :key="pi"
+                  class="story-para"
+                >{{ para }}</p>
+              </div>
+            </Transition>
+          </article>
+        </div>
       </div>
 
       <div v-else class="empty-state">
@@ -188,10 +193,16 @@ function toggle(id) {
 
 /* ── Story grid ── */
 .story-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: flex;
   gap: 20px;
-  align-items: start;
+  align-items: flex-start;
+}
+
+.story-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .story-card {
@@ -313,7 +324,7 @@ function toggle(id) {
 /* ── Responsive ── */
 @media (max-width: 640px) {
   .story-grid {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 
   .controls {
