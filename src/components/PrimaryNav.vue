@@ -13,6 +13,7 @@ const links = [
   { to: '/pre-trip', label: 'Pre-Trip Prep' },
   { to: '/groceries', label: 'Groceries' },
   { to: '/photos', label: 'Photos' },
+  { to: '/admin', label: 'Admin' },
 ]
 
 const extrasLinks = [

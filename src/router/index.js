@@ -7,6 +7,7 @@ import PreTripPage from '../pages/PreTripPage.vue'
 import GroceriesPage from '../pages/GroceriesPage.vue'
 import WhaleSightingsPage from '../pages/WhaleSightingsPage.vue'
 import GhostStoriesPage from '../pages/GhostStoriesPage.vue'
+import AdminPage from '../pages/AdminPage.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import { bypassAuth, hasSupabaseConfig } from '../lib/supabaseClient'
 import { getCurrentSession, setPostLoginRedirect } from '../lib/authAccess'
@@ -72,6 +73,7 @@ const router = createRouter({
     { path: '/groceries', component: GroceriesPage, meta: { requiresAuth: true, breadcrumb: 'Groceries' } },
     { path: '/whales', component: WhaleSightingsPage, meta: { requiresAuth: true, breadcrumb: 'Whale Sightings' } },
     { path: '/ghost-stories', component: GhostStoriesPage, meta: { requiresAuth: true, breadcrumb: 'Ghost Stories' } },
+    { path: '/admin', component: AdminPage, meta: { requiresAuth: true, breadcrumb: 'Admin' } },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })

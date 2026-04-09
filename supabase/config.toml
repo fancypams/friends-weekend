@@ -36,6 +36,9 @@ verify_jwt = false
 [functions.invites]
 verify_jwt = false
 
+[functions.invite-and-send]
+verify_jwt = false
+
 [functions.media]
 verify_jwt = false
 

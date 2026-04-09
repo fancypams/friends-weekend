@@ -45,6 +45,7 @@ Deploy these functions:
 - `my-uploads`
 - `sign-media-url`
 - `invites`
+- `invite-and-send`
 - `media`
 - `process-media`
 
@@ -58,6 +59,7 @@ supabase functions deploy gallery-feed --no-verify-jwt
 supabase functions deploy my-uploads --no-verify-jwt
 supabase functions deploy sign-media-url --no-verify-jwt
 supabase functions deploy invites --no-verify-jwt
+supabase functions deploy invite-and-send --no-verify-jwt
 supabase functions deploy media --no-verify-jwt
 supabase functions deploy process-media
 ```

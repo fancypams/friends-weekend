@@ -451,6 +451,13 @@ export function upsertInvite(payload) {
   })
 }
 
+export function inviteAndSend(payload) {
+  return callFunction('invite-and-send', {
+    method: 'POST',
+    body: payload,
+  })
+}
+
 export function removeInvite(email) {
   return callFunction(`invites/${encodeURIComponent(email)}`, {
     method: 'DELETE',
