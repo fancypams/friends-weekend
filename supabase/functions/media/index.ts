@@ -55,9 +55,9 @@ Deno.serve(async (req) => {
     return notFound('Media not found')
   }
 
-  const canDelete = media.owner_id === auth.user.id || auth.profile.role === 'admin'
+  const canDelete = media.owner_id === auth.user.id
   if (!canDelete) {
-    return forbidden('Only owner or admin can remove media')
+    return forbidden('Only the uploader can remove media')
   }
 
   if (media.status === 'removed') {
@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
     entity: 'media_assets',
     entityId: media.id,
     details: {
-      removedBy: auth.profile.role,
+      removedBy: 'owner',
       removedPaths: paths,
     },
   })

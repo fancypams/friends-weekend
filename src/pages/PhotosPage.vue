@@ -381,11 +381,12 @@ function revealAtIsoFromUploadIso(uploadIso) {
 }
 
 function isEmbargoedForViewer(item) {
-  if (typeof item?.embargoed_for_viewer === 'boolean') {
-    return forceCensoredPreview.value || item.embargoed_for_viewer
-  }
+  if (!item) return false
+  if (item.owner_id === userId.value) return false
   if (forceCensoredPreview.value) return true
-  if (!item || item.owner_id === userId.value) return false
+  if (typeof item.embargoed_for_viewer === 'boolean') {
+    return item.embargoed_for_viewer
+  }
   const base = item.reveal_at || revealAtIsoFromUploadIso(item.published_at || item.created_at)
   const revealAt = String(base || '').trim()
   if (!revealAt) return false
@@ -445,7 +446,7 @@ async function refreshEmbargoedCards() {
     const revealMs = new Date(revealAt).getTime()
     if (!Number.isFinite(revealMs)) continue
 
-    const locked = Date.now() < revealMs
+    const locked = forceCensoredPreview.value ? true : Date.now() < revealMs
     item.reveal_at = revealAt
     item.embargoed_for_viewer = locked
 
@@ -481,7 +482,7 @@ function onVisibilityChange() {
 
 function canRemove(item) {
   if (!item) return false
-  return isAdmin.value || item.owner_id === userId.value
+  return item.owner_id === userId.value
 }
 
 async function resolveOwnerEmail(ownerId) {
@@ -505,11 +506,11 @@ async function applyRealtimeInsert(payload) {
   const revealAt = revealAtIsoFromUploadIso(row.published_at || row.created_at)
   const embargoedForViewer = row.owner_id !== userId.value
     && Boolean(revealAt)
-    && Date.now() < new Date(revealAt).getTime()
+    && (forceCensoredPreview.value || Date.now() < new Date(revealAt).getTime())
   const ownerEmail = embargoedForViewer ? '' : await resolveOwnerEmail(row.owner_id)
   const nextItem = {
     ...row,
-    embargoed_for_viewer: forceCensoredPreview.value || embargoedForViewer,
+    embargoed_for_viewer: embargoedForViewer,
     reveal_at: revealAt,
     owner_email: ownerEmail,
     preview_url: '',
@@ -887,7 +888,8 @@ async function loadGallery({ reset = false } = {}) {
     const payload = await withSessionRetry(() => fetchGalleryFeed(cursor, pageSize))
     const nextItems = (payload.items || []).map((item) => ({
       ...item,
-      embargoed_for_viewer: forceCensoredPreview.value || Boolean(item.embargoed_for_viewer),
+      embargoed_for_viewer: item.owner_id !== userId.value
+        && (forceCensoredPreview.value || Boolean(item.embargoed_for_viewer)),
       preview_url: '',
     }))
 
@@ -1111,7 +1113,7 @@ function injectUploadedMedia({ mediaId, row, mimeType }) {
     poster_path: null,
     created_at: nowIso,
     published_at: nowIso,
-    embargoed_for_viewer: forceCensoredPreview.value,
+    embargoed_for_viewer: false,
     reveal_at: revealAtIsoFromUploadIso(nowIso),
     preview_url: '',
   }
@@ -1422,7 +1424,7 @@ onUnmounted(() => {
                 night at 9:00 PM Pacific we reveal the day’s gallery together.
               </p>
               <p v-if="forceCensoredPreview" class="debug-note">
-                Preview mode is on: all gallery items are intentionally shown as locked.
+                Preview mode is on: other people's uploads are intentionally shown as locked.
               </p>
             </div>
           </header>
