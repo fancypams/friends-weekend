@@ -7,7 +7,7 @@ import HeroHeader from '../components/HeroHeader.vue'
 const loading = ref(true)
 const errorMsg = ref(null)
 const allSightings = ref([])
-const days = ref(10)
+const days = ref(1)
 const mapEl = ref(null)
 
 const DAY_OPTIONS = [1, 3, 5, 7, 10]
