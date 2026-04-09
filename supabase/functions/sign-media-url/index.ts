@@ -82,7 +82,10 @@ Deno.serve(async (req) => {
     const uploadTime = media.published_at || media.created_at
     const embargo = isEmbargoedForViewer(uploadTime)
     if (embargo.embargoed) {
-      return forbidden(`Media is locked until ${embargo.revealAt}`)
+      const canUsePreviewVariant = variant === 'thumb' || variant === 'poster'
+      if (!canUsePreviewVariant) {
+        return forbidden(`Media is locked until ${embargo.revealAt}`)
+      }
     }
   }
 

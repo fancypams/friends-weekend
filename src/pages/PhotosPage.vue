@@ -34,6 +34,7 @@ const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const isMobileViewport = ref(typeof window !== 'undefined' ? window.innerWidth <= 699 : false)
 
 const mobileFeedMode = ref('grid')
+const forceCensoredPreview = ref(false)
 
 const deletingById = ref({})
 const previewRetryById = ref({})
@@ -352,6 +353,13 @@ function onResize() {
   isMobileViewport.value = window.innerWidth <= 699
 }
 
+function hydrateDebugFlagsFromUrl() {
+  if (typeof window === 'undefined') return
+  const params = new URLSearchParams(window.location.search || '')
+  const raw = String(params.get('force_censored_preview') || '').trim().toLowerCase()
+  forceCensoredPreview.value = raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
 function revealAtIsoFromUploadIso(uploadIso) {
   const uploaded = new Date(String(uploadIso || ''))
   if (Number.isNaN(uploaded.getTime())) return null
@@ -373,6 +381,10 @@ function revealAtIsoFromUploadIso(uploadIso) {
 }
 
 function isEmbargoedForViewer(item) {
+  if (typeof item?.embargoed_for_viewer === 'boolean') {
+    return forceCensoredPreview.value || item.embargoed_for_viewer
+  }
+  if (forceCensoredPreview.value) return true
   if (!item || item.owner_id === userId.value) return false
   const base = item.reveal_at || revealAtIsoFromUploadIso(item.published_at || item.created_at)
   const revealAt = String(base || '').trim()
@@ -497,7 +509,7 @@ async function applyRealtimeInsert(payload) {
   const ownerEmail = embargoedForViewer ? '' : await resolveOwnerEmail(row.owner_id)
   const nextItem = {
     ...row,
-    embargoed_for_viewer: embargoedForViewer,
+    embargoed_for_viewer: forceCensoredPreview.value || embargoedForViewer,
     reveal_at: revealAt,
     owner_email: ownerEmail,
     preview_url: '',
@@ -816,8 +828,10 @@ function shouldRefreshPreviewForAuthExpiry(item) {
 }
 
 async function resolvePreviewUrl(item, { force = false } = {}) {
-  if (isEmbargoedForViewer(item)) return ''
-  const variant = item.media_type === 'image' ? 'thumb' : 'processed'
+  const embargoed = isEmbargoedForViewer(item)
+  const variant = item.media_type === 'image'
+    ? 'thumb'
+    : (embargoed ? 'poster' : 'processed')
   try {
     return await getSignedUrlCached(item.id, variant, { force })
   } catch {
@@ -873,6 +887,7 @@ async function loadGallery({ reset = false } = {}) {
     const payload = await withSessionRetry(() => fetchGalleryFeed(cursor, pageSize))
     const nextItems = (payload.items || []).map((item) => ({
       ...item,
+      embargoed_for_viewer: forceCensoredPreview.value || Boolean(item.embargoed_for_viewer),
       preview_url: '',
     }))
 
@@ -1096,7 +1111,7 @@ function injectUploadedMedia({ mediaId, row, mimeType }) {
     poster_path: null,
     created_at: nowIso,
     published_at: nowIso,
-    embargoed_for_viewer: false,
+    embargoed_for_viewer: forceCensoredPreview.value,
     reveal_at: revealAtIsoFromUploadIso(nowIso),
     preview_url: '',
   }
@@ -1288,6 +1303,7 @@ watch(
 )
 
 onMounted(async () => {
+  hydrateDebugFlagsFromUrl()
   hydrateSignedUrlCacheFromStorage()
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
@@ -1380,8 +1396,8 @@ onUnmounted(() => {
       <section v-else-if="authLoading" class="panel gallery-panel">
         <header class="gallery-header">
           <div>
-            <h2>Shared media</h2>
-            <p class="gallery-intro">
+            <h2 class="welcome-heading">Shared media</h2>
+            <p class="welcome-blurb gallery-intro">
               We’re collecting memories all day as the weekend unfolds. Share photos and videos anytime, and each
               night at 9:00 PM Pacific we reveal the day’s gallery together.
             </p>
@@ -1400,10 +1416,13 @@ onUnmounted(() => {
         <section class="panel gallery-panel">
           <header class="gallery-header">
             <div>
-              <h2>Shared media</h2>
-              <p class="gallery-intro">
+              <h2 class="welcome-heading">Shared media</h2>
+              <p class="welcome-blurb gallery-intro">
                 We’re collecting memories all day as the weekend unfolds. Share photos and videos anytime, and each
                 night at 9:00 PM Pacific we reveal the day’s gallery together.
+              </p>
+              <p v-if="forceCensoredPreview" class="debug-note">
+                Preview mode is on: all gallery items are intentionally shown as locked.
               </p>
             </div>
           </header>
@@ -1565,12 +1584,39 @@ onUnmounted(() => {
   gap: 10px;
 }
 
+.welcome-heading {
+  font-family: var(--font-display);
+  font-size: clamp(26px, 5vw, 38px);
+  color: var(--forest);
+  margin: 0 0 12px;
+  letter-spacing: -0.5px;
+}
+
+.welcome-blurb {
+  font-family: var(--font-display);
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--driftwood);
+  margin: 0;
+}
+
 .gallery-intro {
-  margin: 6px 0 0;
+  margin: 0;
   max-width: 70ch;
-  color: var(--warm-brown-muted);
-  font-size: 0.92rem;
-  line-height: 1.45;
+  font-family: var(--font-playfair);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--driftwood);
+}
+
+.debug-note {
+  margin-top: 8px;
+  font-family: var(--font-sign);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sky-label);
 }
 
 .gallery-controls {

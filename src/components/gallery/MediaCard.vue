@@ -34,20 +34,6 @@ const uploaderName = computed(() => {
   return value.split('@')[0].replace(/[._-]+/g, ' ')
 })
 
-const revealLabel = computed(() => {
-  const raw = props.item?.reveal_at
-  if (!raw) return '9:00 PM PT'
-  const date = new Date(raw)
-  if (Number.isNaN(date.getTime())) return '9:00 PM PT'
-  return date.toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  })
-})
-
 const relativeTime = computed(() => {
   const raw = props.item?.published_at
   if (!raw) return 'Unknown time'
@@ -101,10 +87,7 @@ function onThumbKeydown(event) {
         @loadedmetadata="emit('preview-loaded', item)"
       ></video>
       <span v-else class="thumb-empty">Preview unavailable</span>
-      <div v-if="item.embargoed_for_viewer" class="embargo-overlay">
-        <strong>Reveals tonight</strong>
-        <small>{{ revealLabel }}</small>
-      </div>
+      <div v-if="item.embargoed_for_viewer" class="embargo-overlay" aria-hidden="true"></div>
 
       <button
         v-if="compact && canRemove"
@@ -197,25 +180,9 @@ function onThumbKeydown(event) {
 .embargo-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(247, 250, 252, 0.72);
-  backdrop-filter: blur(8px);
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 4px;
-  color: var(--ink);
-  text-align: center;
-  padding: 12px;
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(14px) saturate(0.8);
   pointer-events: none;
-}
-
-.embargo-overlay strong {
-  font-size: 0.86rem;
-}
-
-.embargo-overlay small {
-  font-size: 0.74rem;
-  color: var(--warm-brown-muted);
 }
 
 .thumb-skeleton {
