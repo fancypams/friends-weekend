@@ -130,6 +130,7 @@ onBeforeUnmount(() => {
       <router-link to="/pre-trip" class="nav-item" @click="menuOpen = false">Pre-Trip Prep</router-link>
       <router-link to="/groceries" class="nav-item" @click="menuOpen = false">Groceries</router-link>
       <router-link to="/photos" class="nav-item" @click="menuOpen = false">Photos</router-link>
+      <router-link to="/whales" class="nav-item" @click="menuOpen = false">Whale Sightings</router-link>
       <button type="button" class="nav-item nav-signout" @click="signOutFromMenu">Sign out</button>
     </nav>
 
@@ -169,7 +170,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 16px;
   right: 20px;
-  z-index: 10;
+  z-index: 1000;
   background: none;
   border: none;
   cursor: pointer;
@@ -196,7 +197,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 52px;
   right: 16px;
-  z-index: 10;
+  z-index: 1000;
   background: var(--bg-white);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   border-radius: 6px;

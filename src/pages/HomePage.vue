@@ -44,6 +44,13 @@ import HeroHeader from '../components/HeroHeader.vue'
           <span class="pennant-sub">Shared private gallery</span>
         </div>
       </router-link>
+
+      <router-link to="/whales" class="pennant-card" style="--card-bg: var(--deep-sky)">
+        <div class="pennant-text">
+          <span class="pennant-title">Whale Sightings</span>
+          <span class="pennant-sub">Puget Sound &amp; Salish Sea</span>
+        </div>
+      </router-link>
     </nav>
   </div>
 </template>
