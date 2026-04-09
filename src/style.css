@@ -65,7 +65,7 @@ body {
   overflow-x: hidden;
   background:
     radial-gradient(ellipse at top, rgba(122, 176, 180, 0.35), transparent 55%),
-    linear-gradient(180deg, #7ab0b4 0%, #c4dde0 30%, var(--bg-page) 65%);
+    linear-gradient(180deg, #7ab0b4 0%, #c4dde0 30%, var(--bg-page) 52%);
   background-attachment: fixed;
   min-height: 100vh;
 }

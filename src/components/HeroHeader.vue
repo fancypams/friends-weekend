@@ -16,6 +16,7 @@ const nowMs = ref(Date.now())
 let tickTimer = null
 
 const menuOpen = ref(false)
+const extrasOpen = ref(false)
 const router = useRouter()
 const route = useRoute()
 const windowWidth = ref(typeof window === 'undefined' ? 0 : window.innerWidth)
@@ -142,7 +143,7 @@ onBeforeUnmount(() => {
 <template>
   <header ref="headerRef" class="hero-header" @mousemove="onMouseMove">
     <!-- Hamburger button -->
-    <button v-if="showHamburger" class="hamburger" :class="{ open: menuOpen }" @click="menuOpen = !menuOpen" aria-label="Toggle menu">
+    <button v-if="showHamburger" class="hamburger" :class="{ open: menuOpen }" @click="menuOpen = !menuOpen; extrasOpen = false" aria-label="Toggle menu">
       <span /><span /><span />
     </button>
 
@@ -154,7 +155,16 @@ onBeforeUnmount(() => {
       <router-link to="/pre-trip" class="nav-item" @click="menuOpen = false">Pre-Trip Prep</router-link>
       <router-link to="/groceries" class="nav-item" @click="menuOpen = false">Groceries</router-link>
       <router-link to="/photos" class="nav-item" @click="menuOpen = false">Photos</router-link>
-      <router-link to="/whales" class="nav-item" @click="menuOpen = false">Whale Sightings</router-link>
+      <button type="button" class="nav-item nav-extras-toggle" :class="{ open: extrasOpen }" @click="extrasOpen = !extrasOpen">
+        Extras
+        <svg class="extras-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <template v-if="extrasOpen">
+        <router-link to="/whales" class="nav-item nav-item--sub" @click="menuOpen = false">Whale Sightings</router-link>
+        <router-link to="/ghost-stories" class="nav-item nav-item--sub" @click="menuOpen = false">Ghost Stories</router-link>
+      </template>
       <button type="button" class="nav-item nav-signout" @click="signOutFromMenu">Sign out</button>
     </nav>
 
@@ -230,7 +240,7 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   border-radius: 6px;
   overflow: hidden;
-  min-width: 160px;
+  width: 200px;
 }
 .nav-item {
   display: block;
@@ -254,6 +264,26 @@ onBeforeUnmount(() => {
 }
 .nav-item.router-link-active {
   color: var(--terracotta);
+}
+
+.nav-extras-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.extras-chevron {
+  transition: transform 0.2s ease;
+  color: var(--driftwood);
+}
+
+.nav-extras-toggle.open .extras-chevron {
+  transform: rotate(180deg);
+}
+
+.nav-item--sub {
+  padding-left: 32px;
+  color: var(--driftwood);
 }
 
 .nav-signout {

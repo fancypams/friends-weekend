@@ -1,0 +1,72 @@
+[
+  {
+    "id": 1,
+    "location": "Kells Irish Restaurant & Bar",
+    "neighborhood": "Pike Place Market",
+    "description": "The Butterworth Building housed Seattle's first mortuary before it became Kells. Locals consider it the single most haunted location in the city.",
+    "story": "Long before pints were poured at Kells Irish Restaurant and Bar, the Butterworth Building served a far grimmer purpose — it was Seattle's first mortuary, and by most accounts, a deeply troubled one. Embalming practices at Butterworth were considered questionable even by the standards of the day, and whatever happened within those walls seems to have left a lasting impression on the building itself.\n\nTwo spirits in particular seem to call Kells home. A young girl in a scarlet dress has been spotted darting through the pub, vanishing the moment anyone tries to follow her. In the mirrors, a man named Charlie appears — derby hat, composed expression — and disappears just as quickly. Glasses shatter without explanation. Candles ignite on their own. Mirrors have cracked for no apparent reason. Staff who have worked there long enough take it in stride, but first-timers rarely do."
+  },
+  {
+    "id": 2,
+    "location": "Pike Place Public Market",
+    "neighborhood": "Downtown",
+    "description": "Princess Angeline, daughter of Duwamish chief Seattle, refused to leave her home when the market was built over it. She still hasn't left.",
+    "story": "When Seattle's famous market was constructed, it was built over the land where Princess Angeline — daughter of Chief Seattle of the Duwamish tribe — had spent her entire life. She refused relocation to a reservation and remained in her waterfront cabin until her death in 1896. It seems she has continued to refuse to leave ever since. Visitors and vendors report seeing an elderly Native American woman in a red handkerchief and shawl moving through the lower levels of the market late at night, after the crowds have thinned. When anyone approaches, she simply vanishes.\n\nThere's a second story nested inside the first. During renovations at the bead emporium, workers opened a wall and found a sealed basket of beads hidden inside — no explanation for how it got there, and no record of it ever being placed. Since the discovery, a child's presence has been felt in the shop: small objects rearranged, the sense of being watched from somewhere below. The market has always been layered with history. Apparently some of that history never checked out."
+  },
+  {
+    "id": 3,
+    "location": "The Sorrento Hotel",
+    "neighborhood": "First Hill",
+    "description": "Built in 1909, the Sorrento is one of Seattle's most haunted hotels. Room 408 is the epicenter — guests rarely ask to stay twice.",
+    "story": "The Hotel Sorrento has been welcoming guests since 1909, and at least one of them never seems to leave. The spirit most closely associated with the hotel is believed to be Alice B. Toklas — writer, life partner of Gertrude Stein, and a figure who clearly left an impression on the place. Though Alice died in Paris in 1967, her presence has reportedly returned to the Sorrento, particularly to room 408 on the fourth floor. Guests have reported waking to the sensation of being watched, finding objects moved overnight, and seeing a translucent female figure standing near the window.\n\nDownstairs in the Hunt Club Bar, the activity is harder to dismiss. Drinks have been seen sliding down the bar without anyone touching them. Glasses tip over on still surfaces. Staff on the closing shift describe hearing footsteps in the upstairs hallway when the floor has been cleared. In 2015, USA Today named the Sorrento one of the most haunted hotels in the world. The hotel doesn't advertise it, but they don't deny it either."
+  },
+  {
+    "id": 4,
+    "location": "Hotel Andra",
+    "neighborhood": "Belltown",
+    "description": "The former Claremont Hotel is haunted by echoes of its Prohibition past — jazz, breaking glass, and a woman who never made it home from her shift.",
+    "story": "When the Claremont Hotel opened in the 1920s, it sat at the heart of Seattle's Prohibition-era nightlife — at least behind closed doors. Today, as Hotel Andra, guests and staff sometimes hear what sounds like a party in full swing from empty rooms: jazz music, laughter, the sharp crack of breaking glass. Then silence. The sounds have been reported often enough that longtime staff have stopped questioning them.\n\nThe heavier presence dates to the 1960s, when a female employee fell to her death from an upper floor. Whether the fall was an accident has never been conclusively settled. She seems to have stayed. A levitating paperweight was witnessed by multiple staff members in the same week — moving slowly across a desk before dropping. Lights flicker in response to no one in particular. The older the building, the easier it is to dismiss these things as settling wood and drafts. At Hotel Andra, the explanations have worn thin."
+  },
+  {
+    "id": 5,
+    "location": "Arctic Club Hotel",
+    "neighborhood": "Downtown",
+    "description": "Congressman Marion Zioncheck fell from the fifth floor in 1936 — in front of his wife. The elevator still stops there on its own.",
+    "story": "On August 7, 1936, Congressman Marion Zioncheck fell from the fifth floor window of the Arctic Club building, landing on the sidewalk below as his wife watched from the street. Whether it was suicide or something more sinister was never definitively resolved. Zioncheck had been behaving erratically for months — involuntarily committed, released, married in a hurry, dead within weeks. His story is one of Seattle's most unsettling political tragedies, and apparently he hasn't fully departed the scene.\n\nGuests and staff at the Arctic Club Hotel report that the elevator stops at the fifth floor unprompted — doors opening onto an empty hallway, cold air rushing in, then closing again. Those who linger on that floor describe sudden cold spots, the sound of footsteps that stop when you stop, and floating orbs visible in photographs taken there. A few visitors have reported something more vivid: a flash of a man falling, there and gone in an instant, like a memory playing out in the wrong building."
+  },
+  {
+    "id": 6,
+    "location": "Merchant's Cafe and Saloon",
+    "neighborhood": "Pioneer Square",
+    "description": "Pioneer Square's oldest bar has been a gambling den, brothel, and speakeasy. Two children who died in a 1938 fire still play in the basement.",
+    "story": "Merchant's Cafe and Saloon is the oldest restaurant in Seattle, and its past reads like a catalog of the city's vices: gambling parlor, brothel, speakeasy during Prohibition, and a favored spot for the kind of business that doesn't get written down. The building has absorbed a great deal over its century-plus of existence, and some of it refuses to leave.\n\nThe basement is the center of it all. In 1938, a fire killed two children in the building, and their spirits are said to have never left. Staff describe playful pranks — objects moved, sounds of running when no one is there, a sense that something small and fast just passed by. The downstairs restrooms are a particular hotspot: doors swing open on their own, and visitors have reported whispered voices with no apparent source. The cafe keeps an official log of paranormal encounters, which by now fills more than one book. The staff treat it as part of the history. The ghosts, apparently, treat it as home."
+  },
+  {
+    "id": 7,
+    "location": "Mayflower Park Hotel",
+    "neighborhood": "Downtown",
+    "description": "The Mayflower's sixth floor hosts an elderly spirit who appears above sleeping guests. The eleventh floor belongs to a trickster no one has identified.",
+    "story": "The Mayflower Park Hotel has a layered and complicated history — functioning at various points as a pool hall, a boxing stadium, and a church, each chapter leaving something behind. Whatever accumulated over the decades seems to have settled into two distinct floors.\n\nGuests on the sixth floor have reported waking in the night to find an elderly male figure standing above their bed, motionless, watching. The apparition doesn't interact — it simply stands there until the guest fully registers what they're seeing, at which point it fades. On the eleventh floor, the spirit is livelier: tools and keys disappear and reappear in odd places, guests have been startled by sounds and touches in otherwise empty rooms. Multiple guests have requested room changes over the years. The hotel has never formally confirmed anything, but it has never turned those requests down either."
+  },
+  {
+    "id": 8,
+    "location": "Moore Theatre",
+    "neighborhood": "Belltown",
+    "description": "The Moore was built directly on top of a cemetery in 1907. The original developer's ghost still walks the basement, and no one who works there is surprised by it.",
+    "story": "When developer James A. Moore built his theater in 1907, he chose to build it directly on top of an existing cemetery rather than relocate the remains. It's the kind of decision that tends to have consequences. The Moore Theatre has been making up for it ever since. James Moore himself is believed to haunt the building — staff and performers have reported a formal-looking male figure in the basement corridors who doesn't respond to being addressed and disappears around corners that don't lead anywhere.\n\nIn the 1970s, someone held a séance in the theater, which paranormal researchers generally agree was not a great idea. Activity intensified afterward. The basement is the most active area: heavy breathing with no source, footsteps that follow and then stop, sudden drops in temperature, and the persistent smell of cigar smoke in rooms where no one has smoked in decades. Performers warming up backstage have described feeling watched from the house seats when the theater is empty. The Moore is one of Seattle's most beloved venues. It is also, by most accounts, one of its least alone."
+  },
+  {
+    "id": 9,
+    "location": "Georgetown Morgue",
+    "neighborhood": "Georgetown",
+    "description": "A former funeral home and crematorium with a history too dark to summarize. Nine people died here in 1968 in a crime that was never solved.",
+    "story": "The building in Georgetown has been many things: a funeral home, a crematorium, an animal processing facility, a morgue. Each function left something behind. But the worst of it came in 1968. During a break-in, nine staff members were bound and forced into the crematorium chamber. None survived. The crime was never solved. No one was ever charged. Whatever happened that night, the building seems to remember it.\n\nVisitors — even those who arrive as skeptics — report a heaviness inside the Georgetown Morgue that's difficult to describe. Cold spots that don't move when you walk through them. Sounds from rooms that have been sealed for decades. The sensation of being followed down hallways, and then suddenly, not. The building operates seasonally as a haunted attraction now, which means the real history and the theatrical staging have become difficult to separate. Those who've worked there overnight rarely try."
+  },
+  {
+    "id": 10,
+    "location": "The Harvard Exit",
+    "neighborhood": "Capitol Hill",
+    "description": "A Capitol Hill movie theater that began as a women's civic hall. The woman who appears in the upper hallway was never a member.",
+    "story": "The Harvard Exit opened as a movie theater in 1968, but the building had served as a meeting hall for a women's civic organization for decades before that. The women who gathered there were very much alive — but the figure who has been seen in the upper hallway, a woman, sometimes motionless, sometimes slowly moving, doesn't appear in any membership records.\n\nTheater staff and late-night projectionists reported footsteps overhead when the upper floors were empty. Laughter drifted down from the hallway between screenings — brief, sourceless, gone before anyone could act on it. The figure herself was seen by enough independent witnesses that the descriptions began to align: a woman in dark clothing, present for a moment, then not. The Harvard Exit closed as a movie theater in 2014. Whether its more permanent residents noticed the change is unclear."
+  }
+]

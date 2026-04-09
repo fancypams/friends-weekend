@@ -9,8 +9,8 @@ const tripCards = [
 ]
 
 const extrasCards = [
-  { to: '/whales', title: 'Whale Sightings', sub: 'Puget Sound & Salish Sea', color: 'var(--deep-sky)', disabled: false },
-  { to: null, title: 'Ghost Stories', sub: 'Haunted Seattle', color: 'var(--forest)', disabled: true },
+  { to: '/whales', title: 'Whale Sightings', sub: 'Puget Sound & Salish Sea', color: 'var(--gold)', disabled: false },
+  { to: '/ghost-stories', title: 'Ghost Stories', sub: 'Haunted Seattle', color: 'var(--red-error)', disabled: false },
 ]
 </script>
 
