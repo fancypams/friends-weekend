@@ -1,0 +1,3 @@
+-- Redacted placeholder.
+-- Original migration contained personal role update data and was removed from source control.
+-- This placeholder keeps local migration history aligned with remote.
