@@ -2,6 +2,7 @@ import { handleOptions } from '../_shared/cors.ts'
 import { assertMethod, badRequest, forbidden, notFound, serverError, json } from '../_shared/http.ts'
 import { requireAuth } from '../_shared/auth.ts'
 import { BUCKET, SIGNED_URL_TTL_SECONDS } from '../_shared/constants.ts'
+import { isEmbargoedForViewer } from '../_shared/daily-reveal.ts'
 
 type SignUrlBody = {
   mediaId?: string
@@ -16,6 +17,8 @@ type MediaRow = {
   processed_path: string | null
   thumbnail_path: string | null
   poster_path: string | null
+  created_at: string
+  published_at: string | null
 }
 
 function resolvePath(media: MediaRow, variant: NonNullable<SignUrlBody['variant']>) {
@@ -56,7 +59,7 @@ Deno.serve(async (req) => {
 
   const { data: media, error: mediaErr } = await auth.admin
     .from('media_assets')
-    .select('id,owner_id,status,original_path,processed_path,thumbnail_path,poster_path')
+    .select('id,owner_id,status,original_path,processed_path,thumbnail_path,poster_path,created_at,published_at')
     .eq('id', mediaId)
     .maybeSingle<MediaRow>()
 
@@ -69,11 +72,18 @@ Deno.serve(async (req) => {
   }
 
   const isOwner = media.owner_id === auth.user.id
-  const isAdmin = auth.profile.role === 'admin'
-  const canView = media.status === 'published' || isOwner || isAdmin
+  const canView = media.status === 'published' || isOwner
 
   if (!canView) {
     return forbidden('Media is not available')
+  }
+
+  if (!isOwner) {
+    const uploadTime = media.published_at || media.created_at
+    const embargo = isEmbargoedForViewer(uploadTime)
+    if (embargo.embargoed) {
+      return forbidden(`Media is locked until ${embargo.revealAt}`)
+    }
   }
 
   const objectPath = resolvePath(media, variant)

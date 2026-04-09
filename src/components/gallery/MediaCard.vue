@@ -28,9 +28,24 @@ const props = defineProps({
 const emit = defineEmits(['open', 'remove', 'preview-error', 'preview-loaded'])
 
 const uploaderName = computed(() => {
+  if (props.item?.embargoed_for_viewer) return 'Anonymous'
   const value = String(props.item?.owner_email || '').trim().toLowerCase()
   if (!value) return 'Friend'
   return value.split('@')[0].replace(/[._-]+/g, ' ')
+})
+
+const revealLabel = computed(() => {
+  const raw = props.item?.reveal_at
+  if (!raw) return '9:00 PM PT'
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return '9:00 PM PT'
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
 })
 
 const relativeTime = computed(() => {
@@ -51,6 +66,7 @@ const relativeTime = computed(() => {
 function onThumbKeydown(event) {
   if (event.key !== 'Enter' && event.key !== ' ') return
   event.preventDefault()
+  if (props.item?.embargoed_for_viewer) return
   emit('open', props.item)
 }
 </script>
@@ -61,8 +77,8 @@ function onThumbKeydown(event) {
       class="thumb-wrap preview-trigger"
       role="button"
       tabindex="0"
-      :aria-label="`Open ${item.media_type} viewer`"
-      @click="emit('open', item)"
+      :aria-label="item.embargoed_for_viewer ? `Locked ${item.media_type}` : `Open ${item.media_type} viewer`"
+      @click="item.embargoed_for_viewer ? null : emit('open', item)"
       @keydown="onThumbKeydown"
     >
       <span v-if="!item.preview_url" class="thumb-skeleton" aria-hidden="true"></span>
@@ -85,6 +101,10 @@ function onThumbKeydown(event) {
         @loadedmetadata="emit('preview-loaded', item)"
       ></video>
       <span v-else class="thumb-empty">Preview unavailable</span>
+      <div v-if="item.embargoed_for_viewer" class="embargo-overlay">
+        <strong>Reveals tonight</strong>
+        <small>{{ revealLabel }}</small>
+      </div>
 
       <button
         v-if="compact && canRemove"
@@ -172,6 +192,30 @@ function onThumbKeydown(event) {
   place-items: center;
   color: var(--warm-brown-muted);
   font-size: 0.8rem;
+}
+
+.embargo-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(247, 250, 252, 0.72);
+  backdrop-filter: blur(8px);
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  color: var(--ink);
+  text-align: center;
+  padding: 12px;
+  pointer-events: none;
+}
+
+.embargo-overlay strong {
+  font-size: 0.86rem;
+}
+
+.embargo-overlay small {
+  font-size: 0.74rem;
+  color: var(--warm-brown-muted);
 }
 
 .thumb-skeleton {

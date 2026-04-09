@@ -2,6 +2,7 @@ import { handleOptions } from '../_shared/cors.ts'
 import { assertMethod, badRequest, serverError, json } from '../_shared/http.ts'
 import { requireAuth } from '../_shared/auth.ts'
 import { decodeCursor, encodeCursor } from '../_shared/cursor.ts'
+import { isEmbargoedForViewer } from '../_shared/daily-reveal.ts'
 
 type FeedCursor = {
   publishedAt: string
@@ -98,10 +99,22 @@ Deno.serve(async (req) => {
     : null
 
   return json({
-    items: rows.map((row) => ({
-      ...row,
-      owner_email: ownerEmailById[row.owner_id] ?? null,
-    })),
+    items: rows.map((row) => {
+      const isOwner = row.owner_id === auth.user.id
+      const uploadTime = row.published_at || row.created_at
+      const embargo = isEmbargoedForViewer(uploadTime)
+      const lockedForViewer = !isOwner && embargo.embargoed
+
+      return {
+        ...row,
+        owner_email: lockedForViewer ? null : ownerEmailById[row.owner_id] ?? null,
+        processed_path: lockedForViewer ? null : row.processed_path,
+        thumbnail_path: lockedForViewer ? null : row.thumbnail_path,
+        poster_path: lockedForViewer ? null : row.poster_path,
+        embargoed_for_viewer: lockedForViewer,
+        reveal_at: embargo.revealAt,
+      }
+    }),
     nextCursor,
   })
 })

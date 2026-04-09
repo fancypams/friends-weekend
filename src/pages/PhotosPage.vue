@@ -67,6 +67,7 @@ let authSubscription = null
 let liveSyncChannel = null
 let authHeartbeatTimer = null
 let authHeartbeatInFlight = false
+let embargoSweepTimer = null
 const INITIAL_PREVIEW_COUNT = 6
 const LOAD_MORE_PREVIEW_COUNT = 2
 const INITIAL_PAGE_SIZE = 12
@@ -82,6 +83,13 @@ const SIGNED_URL_CACHE_STORAGE_KEY = 'friends-weekend:signed-url-cache:v1'
 const SIGNED_URL_CACHE_MAX_ENTRIES = 500
 const UPLOAD_DB_NAME = 'friends-weekend-upload-queue'
 const UPLOAD_DB_STORE = 'queue_items'
+const CAPTURE_WINDOW_START_MS = Date.parse('2026-07-31T07:00:00.000Z') // Jul 31 00:00 Seattle (PDT)
+const CAPTURE_WINDOW_END_MS = Date.parse('2026-08-05T06:59:59.999Z') // Aug 4 23:59:59 Seattle (PDT)
+const CAPTURE_WINDOW_LABEL = 'Jul 31-Aug 4, 2026 (Seattle time)'
+const PT_UTC_OFFSET_HOURS = 7 // Event is in summer (PDT, UTC-7)
+const PT_OFFSET_MS = PT_UTC_OFFSET_HOURS * 60 * 60 * 1000
+const DAILY_REVEAL_HOUR_PT = 21 // 9:00 PM PT
+const REVEAL_OPEN_WINDOW_END_HOUR_PT = 3 // 3:00 AM PT (exclusive)
 
 const isSignedIn = computed(() => bypassAuth || Boolean(session.value?.user))
 const isAdmin = computed(() => bypassAuth || profile.value?.role === 'admin')
@@ -344,6 +352,34 @@ function onResize() {
   isMobileViewport.value = window.innerWidth <= 699
 }
 
+function revealAtIsoFromUploadIso(uploadIso) {
+  const uploaded = new Date(String(uploadIso || ''))
+  if (Number.isNaN(uploaded.getTime())) return null
+
+  const uploadedMs = uploaded.getTime()
+  const ptShifted = new Date(uploadedMs - PT_OFFSET_MS)
+  const year = ptShifted.getUTCFullYear()
+  const month = ptShifted.getUTCMonth()
+  const day = ptShifted.getUTCDate()
+  const hourPt = ptShifted.getUTCHours()
+
+  if (hourPt >= DAILY_REVEAL_HOUR_PT || hourPt < REVEAL_OPEN_WINDOW_END_HOUR_PT) {
+    return uploaded.toISOString()
+  }
+
+  let revealUtcMs = Date.UTC(year, month, day, DAILY_REVEAL_HOUR_PT + PT_UTC_OFFSET_HOURS, 0, 0, 0)
+
+  return new Date(revealUtcMs).toISOString()
+}
+
+function isEmbargoedForViewer(item) {
+  if (!item || item.owner_id === userId.value) return false
+  const base = item.reveal_at || revealAtIsoFromUploadIso(item.published_at || item.created_at)
+  const revealAt = String(base || '').trim()
+  if (!revealAt) return false
+  return Date.now() < new Date(revealAt).getTime()
+}
+
 async function keepSessionWarm() {
   if (bypassAuth || !supabase || !isSignedIn.value || authHeartbeatInFlight) return
 
@@ -384,6 +420,48 @@ function stopAuthHeartbeat() {
   authHeartbeatTimer = null
 }
 
+async function refreshEmbargoedCards() {
+  const items = galleryItems.value
+  if (!items.length) return
+
+  for (const item of items) {
+    if (!item || item.owner_id === userId.value) continue
+
+    const revealAt = item.reveal_at || revealAtIsoFromUploadIso(item.published_at || item.created_at)
+    if (!revealAt) continue
+
+    const revealMs = new Date(revealAt).getTime()
+    if (!Number.isFinite(revealMs)) continue
+
+    const locked = Date.now() < revealMs
+    item.reveal_at = revealAt
+    item.embargoed_for_viewer = locked
+
+    if (locked) continue
+    if (!item.owner_email) {
+      const ownerEmail = await resolveOwnerEmail(item.owner_id)
+      if (ownerEmail) item.owner_email = ownerEmail
+    }
+    if (!item.preview_url) {
+      void signAndPatchPreview(item)
+    }
+  }
+}
+
+function startEmbargoSweep() {
+  if (embargoSweepTimer || typeof window === 'undefined') return
+  embargoSweepTimer = window.setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return
+    void refreshEmbargoedCards()
+  }, 30_000)
+}
+
+function stopEmbargoSweep() {
+  if (!embargoSweepTimer || typeof window === 'undefined') return
+  window.clearInterval(embargoSweepTimer)
+  embargoSweepTimer = null
+}
+
 function onVisibilityChange() {
   if (typeof document === 'undefined' || document.hidden) return
   void keepSessionWarm()
@@ -412,15 +490,23 @@ async function applyRealtimeInsert(payload) {
   if (String(row.status || '').toLowerCase() !== 'published') return
   if (galleryItems.value.some((item) => item.id === row.id)) return
 
-  const ownerEmail = await resolveOwnerEmail(row.owner_id)
+  const revealAt = revealAtIsoFromUploadIso(row.published_at || row.created_at)
+  const embargoedForViewer = row.owner_id !== userId.value
+    && Boolean(revealAt)
+    && Date.now() < new Date(revealAt).getTime()
+  const ownerEmail = embargoedForViewer ? '' : await resolveOwnerEmail(row.owner_id)
   const nextItem = {
     ...row,
+    embargoed_for_viewer: embargoedForViewer,
+    reveal_at: revealAt,
     owner_email: ownerEmail,
     preview_url: '',
   }
 
   galleryItems.value = [nextItem, ...galleryItems.value]
-  void signAndPatchPreview(nextItem)
+  if (!embargoedForViewer) {
+    void signAndPatchPreview(nextItem)
+  }
 }
 
 function stopLiveSync() {
@@ -613,6 +699,7 @@ function closeViewer() {
 
 function openViewer(item) {
   if (!item?.id) return
+  if (isEmbargoedForViewer(item)) return
   viewerItemSnapshot.value = item
   viewerOpen.value = true
   viewerMediaId.value = item.id
@@ -729,6 +816,7 @@ function shouldRefreshPreviewForAuthExpiry(item) {
 }
 
 async function resolvePreviewUrl(item, { force = false } = {}) {
+  if (isEmbargoedForViewer(item)) return ''
   const variant = item.media_type === 'image' ? 'thumb' : 'processed'
   try {
     return await getSignedUrlCached(item.id, variant, { force })
@@ -793,6 +881,7 @@ async function loadGallery({ reset = false } = {}) {
 
     const previewCount = reset ? INITIAL_PREVIEW_COUNT : LOAD_MORE_PREVIEW_COUNT
     await hydratePreviews(nextItems, previewCount)
+    void refreshEmbargoedCards()
   } catch (err) {
     if (!(await maybeReauth(err))) {
       galleryError.value = normalizeUploadError(err)
@@ -842,6 +931,7 @@ function addSelectedFiles(files) {
 
   const next = Array.from(files || []).map((file, idx) => {
     const mimeType = normalizedMime(file)
+    const captureWindowError = captureWindowPrecheckError(file)
     let error = ''
     let status = 'queued'
     const signature = `${String(file?.name || '').trim().toLowerCase()}::${Number(file?.size || 0)}`
@@ -855,6 +945,9 @@ function addSelectedFiles(files) {
     } else if (mimeType.startsWith('video/') && Number(file.size) > VIDEO_MAX_BYTES) {
       status = 'failed'
       error = 'Video exceeds 250 MB limit.'
+    } else if (captureWindowError) {
+      status = 'failed'
+      error = captureWindowError
     } else if (existingSignatures.has(signature) || queuedSignatures.has(signature)) {
       status = 'failed'
       error = duplicateUploadMessage(file)
@@ -965,6 +1058,21 @@ function mediaTypeFromMime(mimeType) {
   return String(mimeType || '').startsWith('image/') ? 'image' : 'video'
 }
 
+function formatLocalDateTime(ts) {
+  const date = new Date(Number(ts || 0))
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString()
+}
+
+function captureWindowPrecheckError(file) {
+  const timestamp = Number(file?.lastModified || 0)
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return ''
+  if (timestamp >= CAPTURE_WINDOW_START_MS && timestamp <= CAPTURE_WINDOW_END_MS) return ''
+
+  const when = formatLocalDateTime(timestamp) || 'an out-of-range date'
+  return `This file appears to be from ${when}, outside ${CAPTURE_WINDOW_LABEL}.`
+}
+
 function injectUploadedMedia({ mediaId, row, mimeType }) {
   if (!mediaId || galleryItems.value.some((item) => item.id === mediaId)) return
 
@@ -988,6 +1096,8 @@ function injectUploadedMedia({ mediaId, row, mimeType }) {
     poster_path: null,
     created_at: nowIso,
     published_at: nowIso,
+    embargoed_for_viewer: false,
+    reveal_at: revealAtIsoFromUploadIso(nowIso),
     preview_url: '',
   }
 
@@ -1038,6 +1148,14 @@ async function startUpload() {
     if (!mimeType) {
       row.status = 'failed'
       row.error = 'Unsupported file type. Use JPEG, PNG, WEBP, HEIC, HEIF, MP4, or MOV.'
+      await removeQueueItemFromStorage(row.id)
+      continue
+    }
+
+    const captureWindowError = captureWindowPrecheckError(file)
+    if (captureWindowError) {
+      row.status = 'failed'
+      row.error = captureWindowError
       await removeQueueItemFromStorage(row.id)
       continue
     }
@@ -1175,6 +1293,7 @@ onMounted(async () => {
   window.addEventListener('offline', onOffline)
   window.addEventListener('resize', onResize)
   document.addEventListener('visibilitychange', onVisibilityChange)
+  startEmbargoSweep()
   await restoreUploadQueue()
 
   if (!hasSupabaseConfig || !supabase) {
@@ -1231,6 +1350,7 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   stopLiveSync()
   stopAuthHeartbeat()
+  stopEmbargoSweep()
   if (authSubscription) {
     authSubscription.unsubscribe()
     authSubscription = null
@@ -1261,6 +1381,10 @@ onUnmounted(() => {
         <header class="gallery-header">
           <div>
             <h2>Shared media</h2>
+            <p class="gallery-intro">
+              We’re collecting memories all day as the weekend unfolds. Share photos and videos anytime, and each
+              night at 9:00 PM Pacific we reveal the day’s gallery together.
+            </p>
           </div>
         </header>
         <p class="sr-only">Loading shared gallery…</p>
@@ -1277,6 +1401,10 @@ onUnmounted(() => {
           <header class="gallery-header">
             <div>
               <h2>Shared media</h2>
+              <p class="gallery-intro">
+                We’re collecting memories all day as the weekend unfolds. Share photos and videos anytime, and each
+                night at 9:00 PM Pacific we reveal the day’s gallery together.
+              </p>
             </div>
           </header>
 
@@ -1435,6 +1563,14 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: end;
   gap: 10px;
+}
+
+.gallery-intro {
+  margin: 6px 0 0;
+  max-width: 70ch;
+  color: var(--warm-brown-muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
 }
 
 .gallery-controls {
