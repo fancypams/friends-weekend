@@ -7,7 +7,6 @@ import EmptyState from '../components/gallery/EmptyState.vue'
 import LoadingState from '../components/gallery/LoadingState.vue'
 import ErrorState from '../components/gallery/ErrorState.vue'
 import { bypassAuth, hasSupabaseConfig, supabase } from '../lib/supabaseClient'
-import { globalSignOut } from '../lib/authAccess'
 import {
   completeUpload,
   createUploadTicket,
@@ -21,7 +20,6 @@ import {
 const session = ref(null)
 const profile = ref(null)
 const authLoading = ref(true)
-const authError = ref('')
 
 const galleryItems = ref([])
 const galleryCursor = ref(null)
@@ -38,6 +36,7 @@ const isMobileViewport = ref(typeof window !== 'undefined' ? window.innerWidth <
 const mobileFeedMode = ref('grid')
 
 const deletingById = ref({})
+const previewRetryById = ref({})
 
 const allowedMime = new Set([
   'image/jpeg',
@@ -58,6 +57,8 @@ const mimeAliases = {
 
 let authSubscription = null
 let liveSyncChannel = null
+let authHeartbeatTimer = null
+let authHeartbeatInFlight = false
 const INITIAL_PREVIEW_COUNT = 6
 const LOAD_MORE_PREVIEW_COUNT = 2
 const INITIAL_PAGE_SIZE = 12
@@ -66,19 +67,19 @@ const IMAGE_MAX_BYTES = 25 * 1024 * 1024
 const VIDEO_MAX_BYTES = 250 * 1024 * 1024
 const UPLOAD_RETRY_ATTEMPTS = 3
 const RETRY_BASE_MS = 700
+const AUTH_HEARTBEAT_MS = 30_000
+const AUTH_REFRESH_BUFFER_SECONDS = 90
 const UPLOAD_DB_NAME = 'friends-weekend-upload-queue'
 const UPLOAD_DB_STORE = 'queue_items'
 
 const isSignedIn = computed(() => bypassAuth || Boolean(session.value?.user))
-const isInvited = computed(() => bypassAuth || Boolean(profile.value?.active))
 const isAdmin = computed(() => bypassAuth || profile.value?.role === 'admin')
 const userId = computed(() => session.value?.user?.id ?? null)
-const userEmail = computed(() => profile.value?.email ?? session.value?.user?.email ?? 'friend@local')
 const captureWindowLabel = computed(() => (
   'Capture window is Jul 31-Aug 4, 2026 (Seattle time).'
 ))
 
-const canLoadApp = computed(() => hasSupabaseConfig && (bypassAuth || (isSignedIn.value && isInvited.value)))
+const canLoadApp = computed(() => hasSupabaseConfig && isSignedIn.value)
 const hasMore = computed(() => Boolean(galleryCursor.value))
 const selectedCount = computed(() => queueItems.value.length)
 
@@ -109,6 +110,18 @@ function looksLikeAuthError(err) {
   )
 }
 
+function syncSessionIfSignedIn(nextSession) {
+  if (!nextSession?.user) return false
+  session.value = nextSession
+  return true
+}
+
+async function getCurrentSessionSnapshot() {
+  if (!supabase) return null
+  const result = await supabase.auth.getSession().catch(() => null)
+  return result?.data?.session ?? null
+}
+
 async function withSessionRetry(task) {
   try {
     return await task()
@@ -119,25 +132,19 @@ async function withSessionRetry(task) {
 
     const refreshed = await supabase.auth.refreshSession().catch(() => null)
     const nextSession = refreshed?.data?.session ?? null
-    if (!nextSession?.user) throw err
-
-    session.value = nextSession
+    if (!syncSessionIfSignedIn(nextSession)) {
+      const fallbackSession = await getCurrentSessionSnapshot()
+      if (!syncSessionIfSignedIn(fallbackSession)) throw err
+    }
     return task()
   }
 }
 
 async function maybeReauth(err) {
-  if (bypassAuth || !looksLikeAuthError(err)) return false
-  authError.value = 'Session expired. Please refresh this page.'
-  return true
-}
+  if (bypassAuth || !supabase || !looksLikeAuthError(err)) return false
 
-async function signOut() {
-  stopLiveSync()
-  await globalSignOut().catch(() => {})
-  session.value = null
-  profile.value = null
-  authError.value = 'Signed out.'
+  const fallbackSession = await getCurrentSessionSnapshot()
+  return !syncSessionIfSignedIn(fallbackSession)
 }
 
 function guessMimeFromName(name) {
@@ -291,6 +298,51 @@ function onResize() {
   isMobileViewport.value = window.innerWidth <= 699
 }
 
+async function keepSessionWarm() {
+  if (bypassAuth || !supabase || !isSignedIn.value || authHeartbeatInFlight) return
+
+  authHeartbeatInFlight = true
+  try {
+    const currentSession = await getCurrentSessionSnapshot()
+    if (!currentSession?.user) return
+
+    const now = Math.floor(Date.now() / 1000)
+    const expiresAt = Number(currentSession.expires_at || 0)
+    const expiringSoon = expiresAt > 0 && expiresAt <= now + AUTH_REFRESH_BUFFER_SECONDS
+
+    if (!expiringSoon) {
+      syncSessionIfSignedIn(currentSession)
+      return
+    }
+
+    const refreshed = await supabase.auth.refreshSession().catch(() => null)
+    const refreshedSession = refreshed?.data?.session ?? null
+    if (syncSessionIfSignedIn(refreshedSession)) return
+    syncSessionIfSignedIn(currentSession)
+  } finally {
+    authHeartbeatInFlight = false
+  }
+}
+
+function startAuthHeartbeat() {
+  if (authHeartbeatTimer || bypassAuth || !supabase) return
+  authHeartbeatTimer = window.setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return
+    void keepSessionWarm()
+  }, AUTH_HEARTBEAT_MS)
+}
+
+function stopAuthHeartbeat() {
+  if (!authHeartbeatTimer) return
+  window.clearInterval(authHeartbeatTimer)
+  authHeartbeatTimer = null
+}
+
+function onVisibilityChange() {
+  if (typeof document === 'undefined' || document.hidden) return
+  void keepSessionWarm()
+}
+
 function canRemove(item) {
   if (!item) return false
   return isAdmin.value || item.owner_id === userId.value
@@ -354,6 +406,52 @@ function setDeleting(mediaId, value) {
   }
 }
 
+function clearPreviewRetry(itemOrId) {
+  const mediaId = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id
+  if (!mediaId || !previewRetryById.value[mediaId]) return
+
+  previewRetryById.value = {
+    ...previewRetryById.value,
+    [mediaId]: 0,
+  }
+}
+
+function decodeBase64Url(input) {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  const normalized = raw.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+  try {
+    return atob(padded)
+  } catch {
+    return ''
+  }
+}
+
+function extractSignedTokenExpiry(url) {
+  try {
+    const token = new URL(String(url || '')).searchParams.get('token') || ''
+    if (!token) return 0
+    const payloadPart = token.split('.')[1] || ''
+    const payloadJson = decodeBase64Url(payloadPart)
+    if (!payloadJson) return 0
+    const payload = JSON.parse(payloadJson)
+    return Number(payload?.exp || 0)
+  } catch {
+    return 0
+  }
+}
+
+function shouldRefreshPreviewForAuthExpiry(item) {
+  const url = String(item?.preview_url || '').trim()
+  if (!url) return true
+  const expiresAt = extractSignedTokenExpiry(url)
+  if (!expiresAt) return true
+
+  const now = Math.floor(Date.now() / 1000)
+  return expiresAt <= now + 30
+}
+
 async function resolvePreviewUrl(item) {
   const variant = item.media_type === 'image' ? 'thumb' : 'processed'
   try {
@@ -372,6 +470,22 @@ async function signAndPatchPreview(item) {
   const index = galleryItems.value.findIndex((row) => row.id === item.id)
   if (index < 0) return
   galleryItems.value[index].preview_url = url
+}
+
+async function handlePreviewLoadError(item) {
+  const mediaId = item?.id
+  if (!mediaId) return
+  if (!shouldRefreshPreviewForAuthExpiry(item)) return
+
+  const retries = Number(previewRetryById.value[mediaId] || 0)
+  if (retries >= 1) return
+
+  previewRetryById.value = {
+    ...previewRetryById.value,
+    [mediaId]: retries + 1,
+  }
+
+  await signAndPatchPreview(item)
 }
 
 async function hydratePreviews(items, awaitCount) {
@@ -415,7 +529,6 @@ async function loadGallery({ reset = false } = {}) {
 
 async function hydrateSession(nextSession) {
   session.value = nextSession
-  authError.value = ''
 
   if (!nextSession?.user) {
     profile.value = null
@@ -426,20 +539,14 @@ async function hydrateSession(nextSession) {
   }
 
   try {
-    const nextProfile = await withSessionRetry(() => fetchProfile(nextSession.user.id))
-    if (!nextProfile) throw new Error('Could not load profile')
-
-    profile.value = nextProfile
-    if (!nextProfile.active) {
-      authError.value = 'Your account is not currently invited to this shared gallery.'
-      return
+    const nextProfile = await withSessionRetry(() => fetchProfile(nextSession.user.id)).catch(() => null)
+    profile.value = nextProfile || {
+      role: 'member',
+      email: nextSession.user.email || '',
     }
-
     await loadGallery({ reset: true })
   } catch (err) {
-    if (!(await maybeReauth(err))) {
-      authError.value = normalizeUploadError(err)
-    }
+    if (!(await maybeReauth(err))) galleryError.value = normalizeUploadError(err)
   } finally {
     authLoading.value = false
   }
@@ -593,6 +700,7 @@ onMounted(async () => {
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
   window.addEventListener('resize', onResize)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   await restoreUploadQueue()
 
   if (!hasSupabaseConfig || !supabase) {
@@ -602,7 +710,7 @@ onMounted(async () => {
 
   if (bypassAuth) {
     session.value = { user: { id: '00000000-0000-0000-0000-000000000000', email: 'group@friends-weekend.local' } }
-    profile.value = { active: true, role: 'admin', email: 'group@friends-weekend.local' }
+    profile.value = { role: 'admin', email: 'group@friends-weekend.local' }
     authLoading.value = false
     await loadGallery({ reset: true })
     startLiveSync()
@@ -612,11 +720,13 @@ onMounted(async () => {
     return
   }
 
-  const { data } = await supabase.auth.getSession()
-  await hydrateSession(data.session)
-  if (isInvited.value) startLiveSync()
+  const currentSession = await getCurrentSessionSnapshot()
+  await hydrateSession(currentSession)
+  startAuthHeartbeat()
+  void keepSessionWarm()
+  if (isSignedIn.value) startLiveSync()
   else stopLiveSync()
-  if (isOnline.value && isInvited.value && queueItems.value.some((item) => item.status === 'queued')) {
+  if (isOnline.value && isSignedIn.value && queueItems.value.some((item) => item.status === 'queued')) {
     void startUpload()
   }
 
@@ -630,9 +740,9 @@ onMounted(async () => {
     // Keep session in sync without reloading the gallery on every token refresh.
     session.value = nextSession
 
-    if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+    if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
       await hydrateSession(nextSession)
-      if (isInvited.value) startLiveSync()
+      if (isSignedIn.value) startLiveSync()
       else stopLiveSync()
     }
   })
@@ -644,7 +754,9 @@ onUnmounted(() => {
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
   window.removeEventListener('resize', onResize)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   stopLiveSync()
+  stopAuthHeartbeat()
   if (authSubscription) {
     authSubscription.unsubscribe()
     authSubscription = null
@@ -656,7 +768,7 @@ onUnmounted(() => {
   <div class="photos-page">
     <HeroHeader show-back />
 
-    <main class="photos-content">
+    <main class="photos-content page-main">
       <section v-if="!hasSupabaseConfig" class="panel warning-panel">
         <h2>Supabase not configured</h2>
         <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` before using the gallery.</p>
@@ -671,13 +783,7 @@ onUnmounted(() => {
         <p>Waiting for global authentication.</p>
       </section>
 
-      <section v-else-if="!isInvited" class="panel warning-panel">
-        <h2>Invite required</h2>
-        <p>{{ authError || 'Your account is not currently approved for this gallery.' }}</p>
-        <button class="btn soft" type="button" @click="signOut">Sign out</button>
-      </section>
-
-      <template v-else>
+      <template v-else-if="isSignedIn">
         <section class="panel gallery-panel">
           <header class="gallery-header">
             <div>
@@ -734,7 +840,8 @@ onUnmounted(() => {
               <MediaCard v-for="item in galleryItems" :key="item.id" :item="item"
                 :overlay="isMobileViewport && mobileFeedMode === 'list'"
                 :compact="isMobileViewport && mobileFeedMode === 'grid'" :deleting="Boolean(deletingById[item.id])"
-                :can-remove="canRemove(item)" @remove="deleteMediaItem" />
+                :can-remove="canRemove(item)" @remove="deleteMediaItem" @preview-error="handlePreviewLoadError"
+                @preview-loaded="clearPreviewRetry" />
             </div>
 
             <button v-if="hasMore" class="btn soft load-more" type="button" :disabled="galleryLoading" @click="loadGallery()">
@@ -760,9 +867,7 @@ onUnmounted(() => {
 }
 
 .photos-content {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 72px 16px calc(88px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   display: grid;
   gap: 14px;
   touch-action: pan-y;
@@ -904,20 +1009,12 @@ h2 {
 }
 
 @media (min-width: 700px) {
-  .photos-content {
-    padding-inline: 20px;
-  }
-
   .gallery-feed {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @media (min-width: 980px) {
-  .photos-content {
-    padding-top: 86px;
-  }
-
   .gallery-feed {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -925,7 +1022,6 @@ h2 {
 
 @media (max-width: 699px) {
   .photos-content {
-    padding-inline: 8px;
     gap: 10px;
   }
 

@@ -179,20 +179,10 @@ async function checkSessionAndRedirect() {
     return
   }
 
-  if (route.query.blocked === '1') {
-    errorMsg.value = 'This account is not invited yet. Ask an admin to add your email.'
-  }
-
   try {
     const state = await getAuthState()
-
-    if (state.signedIn && state.invited) {
+    if (state.signedIn) {
       await routeAfterLogin()
-      return
-    }
-
-    if (state.signedIn && !state.invited) {
-      errorMsg.value = 'This account is not invited yet. Ask an admin to add your email.'
     }
   } catch (err) {
     errorMsg.value = err?.message || 'Could not check session'
@@ -285,7 +275,7 @@ onUnmounted(() => {
           </section>
 
           <form v-else class="magic-link-form" @submit.prevent="submitMagicLink">
-            <label for="invite-email" class="field-label">Invited email</label>
+            <label for="invite-email" class="field-label">Email</label>
             <input
               id="invite-email"
               v-model="email"

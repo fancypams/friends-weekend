@@ -8,7 +8,7 @@ import GroceriesPage from '../pages/GroceriesPage.vue'
 import WhaleSightingsPage from '../pages/WhaleSightingsPage.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import { bypassAuth, hasSupabaseConfig } from '../lib/supabaseClient'
-import { getAuthState, globalSignOut, setPostLoginRedirect } from '../lib/authAccess'
+import { getCurrentSession, setPostLoginRedirect } from '../lib/authAccess'
 
 function safeRedirectPath(value) {
   const candidate = String(value || '').trim()
@@ -45,17 +45,31 @@ function cleanupAuthCallbackQueryParams() {
   window.history.replaceState(window.history.state, '', nextUrl)
 }
 
+function redirectToLogin(toPath) {
+  const redirect = safeRedirectPath(toPath)
+  setPostLoginRedirect(redirect)
+  return {
+    path: '/login',
+    query: { redirect },
+  }
+}
+
+async function hasActiveSession() {
+  const session = await getCurrentSession().catch(() => null)
+  return Boolean(session?.user)
+}
+
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
-    { path: '/login', component: LoginPage },
+    { path: '/login', component: LoginPage, meta: { breadcrumb: 'Login' } },
     { path: '/', component: HomePage, meta: { requiresAuth: true } },
-    { path: '/basics', component: BasicsPage, meta: { requiresAuth: true } },
-    { path: '/itinerary', component: ItineraryPage, meta: { requiresAuth: true } },
-    { path: '/photos', component: PhotosPage, meta: { requiresAuth: true } },
-    { path: '/pre-trip', component: PreTripPage, meta: { requiresAuth: true } },
-    { path: '/groceries', component: GroceriesPage, meta: { requiresAuth: true } },
-    { path: '/whales', component: WhaleSightingsPage, meta: { requiresAuth: true } },
+    { path: '/basics', component: BasicsPage, meta: { requiresAuth: true, breadcrumb: 'Basics' } },
+    { path: '/itinerary', component: ItineraryPage, meta: { requiresAuth: true, breadcrumb: 'Itinerary' } },
+    { path: '/photos', component: PhotosPage, meta: { requiresAuth: true, breadcrumb: 'Photos' } },
+    { path: '/pre-trip', component: PreTripPage, meta: { requiresAuth: true, breadcrumb: 'Pre-Trip Prep' } },
+    { path: '/groceries', component: GroceriesPage, meta: { requiresAuth: true, breadcrumb: 'Groceries' } },
+    { path: '/whales', component: WhaleSightingsPage, meta: { requiresAuth: true, breadcrumb: 'Whale Sightings' } },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })
@@ -74,25 +88,9 @@ router.beforeEach(async (to) => {
   const forceLogin = to.query.reauth === '1'
 
   try {
-    const state = await getAuthState()
-
     if (needsAuth) {
-      if (!state.signedIn) {
-        const redirect = safeRedirectPath(to.fullPath)
-        setPostLoginRedirect(redirect)
-        return {
-          path: '/login',
-          query: { redirect },
-        }
-      }
-
-      if (!state.invited) {
-        await globalSignOut()
-        return {
-          path: '/login',
-          query: { blocked: '1' },
-        }
-      }
+      const signedIn = await hasActiveSession()
+      if (!signedIn) return redirectToLogin(to.fullPath)
 
       return true
     }
@@ -101,19 +99,20 @@ router.beforeEach(async (to) => {
       return true
     }
 
-    if (isLogin && state.signedIn && state.invited) {
-      return safeRedirectPath(to.query.redirect)
+    if (isLogin) {
+      if (await hasActiveSession()) {
+        return safeRedirectPath(to.query.redirect)
+      }
     }
 
     return true
   } catch {
     if (needsAuth) {
-      const redirect = safeRedirectPath(to.fullPath)
-      setPostLoginRedirect(redirect)
-      return {
-        path: '/login',
-        query: { redirect },
+      if (await hasActiveSession()) {
+        // Avoid forcing users to /login on transient profile/network failures.
+        return true
       }
+      return redirectToLogin(to.fullPath)
     }
 
     return true

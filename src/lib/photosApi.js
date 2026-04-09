@@ -128,7 +128,8 @@ async function getValidSession() {
 
   if (probe.error || !probe.data?.user) {
     if (!isInvalidJwt(probe.error)) {
-      throw probe.error || new Error('No active session')
+      // Treat non-auth probe failures as transient and keep the current session.
+      return session
     }
 
     session = await refresh()

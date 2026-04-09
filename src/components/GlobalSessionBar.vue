@@ -8,7 +8,6 @@ const router = useRouter()
 const signingOut = ref(false)
 const state = ref({
   signedIn: false,
-  invited: false,
   profile: null,
 })
 let subscription = null
@@ -20,7 +19,6 @@ async function syncState() {
   if (!hasSupabaseConfig || !supabase) {
     state.value = {
       signedIn: false,
-      invited: false,
       profile: null,
     }
     return
@@ -31,7 +29,6 @@ async function syncState() {
   } catch {
     state.value = {
       signedIn: false,
-      invited: false,
       profile: null,
     }
   }

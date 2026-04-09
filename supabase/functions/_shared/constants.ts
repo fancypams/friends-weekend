@@ -45,4 +45,4 @@ export const FILE_EXT_BY_MIME: Record<string, string> = {
 }
 
 export const UPLOADS_PER_HOUR_LIMIT = 80
-export const SIGNED_URL_TTL_SECONDS = 90
+export const SIGNED_URL_TTL_SECONDS = 900

@@ -25,7 +25,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['remove'])
+const emit = defineEmits(['remove', 'preview-error', 'preview-loaded'])
 
 const uploaderName = computed(() => {
   const value = String(props.item?.owner_email || '').trim().toLowerCase()
@@ -59,6 +59,8 @@ const relativeTime = computed(() => {
         :alt="item.original_filename"
         loading="lazy"
         decoding="async"
+        @error="emit('preview-error', item)"
+        @load="emit('preview-loaded', item)"
       />
       <video
         v-else-if="item.media_type === 'video' && item.preview_url"
@@ -66,6 +68,8 @@ const relativeTime = computed(() => {
         preload="metadata"
         muted
         playsinline
+        @error="emit('preview-error', item)"
+        @loadedmetadata="emit('preview-loaded', item)"
       ></video>
       <span v-else class="thumb-empty">Preview unavailable</span>
 
