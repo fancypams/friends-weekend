@@ -47,38 +47,44 @@ const relativeTime = computed(() => {
   if (diffDays < 7) return `${diffDays}d ago`
   return date.toLocaleDateString()
 })
+
+function onThumbKeydown(event) {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  emit('open', props.item)
+}
 </script>
 
 <template>
   <article class="media-card" :class="{ 'overlay-card': overlay, 'compact-card': compact }">
-    <div class="thumb-wrap">
+    <div
+      class="thumb-wrap preview-trigger"
+      role="button"
+      tabindex="0"
+      :aria-label="`Open ${item.media_type} viewer`"
+      @click="emit('open', item)"
+      @keydown="onThumbKeydown"
+    >
       <span v-if="!item.preview_url" class="thumb-skeleton" aria-hidden="true"></span>
-      <button
-        class="preview-trigger"
-        type="button"
-        :aria-label="`Open ${item.media_type} viewer`"
-        @click="emit('open', item)"
-      >
-        <img
-          v-if="item.media_type === 'image' && item.preview_url"
-          :src="item.preview_url"
-          :alt="item.original_filename"
-          loading="lazy"
-          decoding="async"
-          @error="emit('preview-error', item)"
-          @load="emit('preview-loaded', item)"
-        />
-        <video
-          v-else-if="item.media_type === 'video' && item.preview_url"
-          :src="item.preview_url"
-          preload="metadata"
-          muted
-          playsinline
-          @error="emit('preview-error', item)"
-          @loadedmetadata="emit('preview-loaded', item)"
-        ></video>
-        <span v-else class="thumb-empty">Preview unavailable</span>
-      </button>
+      <img
+        v-if="item.media_type === 'image' && item.preview_url"
+        :src="item.preview_url"
+        :alt="item.original_filename"
+        loading="lazy"
+        decoding="async"
+        @error="emit('preview-error', item)"
+        @load="emit('preview-loaded', item)"
+      />
+      <video
+        v-else-if="item.media_type === 'video' && item.preview_url"
+        :src="item.preview_url"
+        preload="metadata"
+        muted
+        playsinline
+        @error="emit('preview-error', item)"
+        @loadedmetadata="emit('preview-loaded', item)"
+      ></video>
+      <span v-else class="thumb-empty">Preview unavailable</span>
 
       <button
         v-if="compact && canRemove"
@@ -145,6 +151,11 @@ const relativeTime = computed(() => {
   background: transparent;
   padding: 0;
   cursor: pointer;
+}
+
+.preview-trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--deep-sky) 70%, white);
+  outline-offset: 2px;
 }
 
 .thumb-wrap img,

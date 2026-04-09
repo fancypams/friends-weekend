@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import HeroHeader from '../components/HeroHeader.vue'
 import MediaCard from '../components/gallery/MediaCard.vue'
-import UploadPanel from '../components/gallery/UploadPanel.vue'
 import EmptyState from '../components/gallery/EmptyState.vue'
 import LoadingState from '../components/gallery/LoadingState.vue'
 import ErrorState from '../components/gallery/ErrorState.vue'
@@ -28,9 +27,9 @@ const galleryLoading = ref(false)
 const galleryError = ref('')
 
 const queueItems = ref([])
-const uploadPanelOpen = ref(false)
 const uploadBusy = ref(false)
 const uploadError = ref('')
+const nativePickerRef = ref(null)
 const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const isMobileViewport = ref(typeof window !== 'undefined' ? window.innerWidth <= 699 : false)
 
@@ -43,6 +42,8 @@ const viewerMediaId = ref('')
 const viewerMediaUrl = ref('')
 const viewerLoading = ref(false)
 const viewerError = ref('')
+const viewerItemSnapshot = ref(null)
+const viewerVariant = ref('processed')
 let viewerLoadToken = 0
 
 const allowedMime = new Set([
@@ -85,18 +86,43 @@ const UPLOAD_DB_STORE = 'queue_items'
 const isSignedIn = computed(() => bypassAuth || Boolean(session.value?.user))
 const isAdmin = computed(() => bypassAuth || profile.value?.role === 'admin')
 const userId = computed(() => session.value?.user?.id ?? null)
-const captureWindowLabel = computed(() => (
-  'Capture window is Jul 31-Aug 4, 2026 (Seattle time).'
-))
 
 const canLoadApp = computed(() => hasSupabaseConfig && isSignedIn.value)
 const hasMore = computed(() => Boolean(galleryCursor.value))
-const selectedCount = computed(() => queueItems.value.length)
+const queuedUploadCount = computed(() => queueItems.value.filter((item) => item.status === 'queued').length)
+const activeUploadCount = computed(() => (
+  queueItems.value.filter((item) => ['requesting-ticket', 'uploading', 'processing'].includes(item.status)).length
+))
+const failedUploadCount = computed(() => queueItems.value.filter((item) => item.status === 'failed').length)
+const failedUploadItems = computed(() => queueItems.value.filter((item) => item.status === 'failed'))
+const pendingUploadCount = computed(() => queuedUploadCount.value + activeUploadCount.value)
+const uploadStatusMessage = computed(() => {
+  if (pendingUploadCount.value > 0) return `Uploading ${pendingUploadCount.value} file(s)…`
+  if (failedUploadCount.value > 0) return `${failedUploadCount.value} file(s) failed to upload.`
+  if (uploadError.value) return uploadError.value
+  return ''
+})
+const showUploadStatus = computed(() => Boolean(uploadStatusMessage.value))
+const uploadFailureDetails = computed(() => {
+  const seen = new Set()
+  const details = []
+  for (const item of failedUploadItems.value) {
+    const name = String(item.file?.name || 'File')
+    const reason = String(item.error || 'Upload failed.')
+    const key = `${name.toLowerCase()}::${reason.toLowerCase()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    details.push({ id: item.id, name, reason })
+    if (details.length >= 3) break
+  }
+  return details
+})
 const viewerIndex = computed(() => galleryItems.value.findIndex((item) => item.id === viewerMediaId.value))
 const viewerItem = computed(() => {
   const idx = viewerIndex.value
-  if (idx < 0) return null
-  return galleryItems.value[idx] || null
+  if (idx >= 0) return galleryItems.value[idx] || null
+  if (viewerItemSnapshot.value?.id) return viewerItemSnapshot.value
+  return null
 })
 const viewerTotal = computed(() => galleryItems.value.length)
 const signedUrlCache = new Map()
@@ -296,7 +322,7 @@ async function restoreUploadQueue() {
         error: status === 'queued' ? 'Upload resumed after reconnect/reopen.' : String(item.error || ''),
       }
     })
-    .filter((item) => item.status !== 'published')
+    .filter((item) => item.status === 'queued')
 }
 
 function onOnline() {
@@ -577,14 +603,17 @@ async function getSignedUrlCached(mediaId, variant, { force = false } = {}) {
 function closeViewer() {
   viewerOpen.value = false
   viewerMediaId.value = ''
+  viewerItemSnapshot.value = null
   viewerMediaUrl.value = ''
   viewerError.value = ''
   viewerLoading.value = false
+  viewerVariant.value = 'processed'
   viewerLoadToken += 1
 }
 
 function openViewer(item) {
   if (!item?.id) return
+  viewerItemSnapshot.value = item
   viewerOpen.value = true
   viewerMediaId.value = item.id
 }
@@ -596,6 +625,7 @@ function setViewerByIndex(nextIndex) {
   const normalized = (nextIndex + total) % total
   const next = galleryItems.value[normalized]
   if (!next?.id) return
+  viewerItemSnapshot.value = next
   viewerMediaId.value = next.id
 }
 
@@ -622,7 +652,7 @@ function prefetchViewerNeighbors() {
   }
 }
 
-async function loadViewerMedia(item, { force = false } = {}) {
+async function loadViewerMedia(item, { force = false, variantOverride = '' } = {}) {
   if (!item?.id || !viewerOpen.value) return
 
   const loadToken = ++viewerLoadToken
@@ -631,7 +661,9 @@ async function loadViewerMedia(item, { force = false } = {}) {
   viewerMediaUrl.value = ''
 
   try {
-    const url = await getSignedUrlCached(item.id, 'processed', { force })
+    const variant = variantOverride || (item.media_type === 'image' ? 'original' : 'processed')
+    viewerVariant.value = variant
+    const url = await getSignedUrlCached(item.id, variant, { force })
     if (loadToken !== viewerLoadToken) return
 
     viewerMediaUrl.value = String(url || '').trim()
@@ -657,6 +689,10 @@ async function loadViewerMedia(item, { force = false } = {}) {
 
 function handleViewerMediaError() {
   if (!viewerItem.value) return
+  if (viewerItem.value.media_type === 'image' && viewerVariant.value === 'original') {
+    void loadViewerMedia(viewerItem.value, { force: true, variantOverride: 'processed' })
+    return
+  }
   void loadViewerMedia(viewerItem.value, { force: true })
 }
 
@@ -792,10 +828,23 @@ async function hydrateSession(nextSession) {
 }
 
 function addSelectedFiles(files) {
+  const existingSignatures = new Set(
+    galleryItems.value
+      .map((item) => `${String(item.original_filename || '').trim().toLowerCase()}::${Number(item.bytes || 0)}`)
+      .filter((sig) => !sig.endsWith('::0')),
+  )
+
+  const queuedSignatures = new Set(
+    queueItems.value
+      .map((item) => `${String(item.file?.name || '').trim().toLowerCase()}::${Number(item.file?.size || 0)}`)
+      .filter((sig) => !sig.endsWith('::0')),
+  )
+
   const next = Array.from(files || []).map((file, idx) => {
     const mimeType = normalizedMime(file)
     let error = ''
     let status = 'queued'
+    const signature = `${String(file?.name || '').trim().toLowerCase()}::${Number(file?.size || 0)}`
 
     if (!mimeType) {
       status = 'failed'
@@ -806,6 +855,11 @@ function addSelectedFiles(files) {
     } else if (mimeType.startsWith('video/') && Number(file.size) > VIDEO_MAX_BYTES) {
       status = 'failed'
       error = 'Video exceeds 250 MB limit.'
+    } else if (existingSignatures.has(signature) || queuedSignatures.has(signature)) {
+      status = 'failed'
+      error = duplicateUploadMessage(file)
+    } else {
+      queuedSignatures.add(signature)
     }
 
     return {
@@ -819,9 +873,17 @@ function addSelectedFiles(files) {
 
   queueItems.value = [...queueItems.value, ...next]
   for (const row of next) {
-    void persistQueueItem(row)
+    if (row.status === 'queued') {
+      void persistQueueItem(row)
+    } else {
+      void removeQueueItemFromStorage(row.id)
+    }
   }
   uploadError.value = ''
+
+  if (canLoadApp.value) {
+    void startUpload()
+  }
 }
 
 function retryUpload(id) {
@@ -838,9 +900,114 @@ function retryUpload(id) {
   })
 }
 
-function removeQueueItem(id) {
-  queueItems.value = queueItems.value.filter((item) => item.id !== id)
-  void removeQueueItemFromStorage(id)
+function openNativeUploadPicker() {
+  queueItems.value = queueItems.value.filter((item) => item.status !== 'failed')
+  uploadError.value = ''
+  const input = nativePickerRef.value
+  if (!input) return
+  input.value = ''
+  input.click()
+}
+
+function handleNativePickerChange(event) {
+  const files = Array.from(event.target?.files || [])
+  if (!files.length) return
+  queueItems.value = queueItems.value.filter((item) => item.status !== 'failed')
+  uploadError.value = ''
+  addSelectedFiles(files)
+}
+
+function fileSignatureFromNameAndSize(name, size) {
+  return `${String(name || '').trim().toLowerCase()}::${Number(size || 0)}`
+}
+
+function gallerySignatureSet() {
+  return new Set(
+    galleryItems.value
+      .map((item) => fileSignatureFromNameAndSize(item.original_filename, item.bytes))
+      .filter((sig) => !sig.endsWith('::0')),
+  )
+}
+
+function findExistingGalleryMediaByFile(file) {
+  const signature = fileSignatureFromNameAndSize(file?.name, file?.size)
+  return galleryItems.value.find((item) => (
+    fileSignatureFromNameAndSize(item.original_filename, item.bytes) === signature
+  )) || null
+}
+
+function duplicateUploadMessage(file) {
+  const media = findExistingGalleryMediaByFile(file)
+  if (!media) return 'This file already exists in the shared gallery.'
+
+  const uploadRaw = media.published_at || media.created_at || ''
+  const uploadDate = uploadRaw ? new Date(uploadRaw) : null
+  const uploadLabel = uploadDate && !Number.isNaN(uploadDate.getTime())
+    ? uploadDate.toLocaleString()
+    : 'an earlier time'
+
+  const myEmail = String(profile.value?.email || session.value?.user?.email || '').trim().toLowerCase()
+  const ownerEmail = String(media.owner_email || '').trim().toLowerCase()
+  const isCurrentUser = Boolean(
+    (media.owner_id && userId.value && media.owner_id === userId.value)
+    || (myEmail && ownerEmail && myEmail === ownerEmail)
+  )
+
+  if (isCurrentUser) {
+    return `You uploaded this file on ${uploadLabel}.`
+  }
+
+  const uploaderName = ownerEmail ? ownerEmail.split('@')[0] : 'Another friend'
+  return `${uploaderName} uploaded this file on ${uploadLabel}.`
+}
+
+function mediaTypeFromMime(mimeType) {
+  return String(mimeType || '').startsWith('image/') ? 'image' : 'video'
+}
+
+function injectUploadedMedia({ mediaId, row, mimeType }) {
+  if (!mediaId || galleryItems.value.some((item) => item.id === mediaId)) return
+
+  const ownerId = userId.value || session.value?.user?.id || ''
+  const ownerEmail = profile.value?.email || session.value?.user?.email || ''
+  const nowIso = new Date().toISOString()
+
+  const nextItem = {
+    id: mediaId,
+    owner_id: ownerId,
+    owner_email: ownerEmail,
+    media_type: mediaTypeFromMime(mimeType),
+    mime_type: mimeType,
+    original_filename: String(row?.file?.name || 'Upload'),
+    bytes: Number(row?.file?.size || 0),
+    status: 'published',
+    captured_at: null,
+    capture_source: null,
+    processed_path: null,
+    thumbnail_path: null,
+    poster_path: null,
+    created_at: nowIso,
+    published_at: nowIso,
+    preview_url: '',
+  }
+
+  galleryItems.value = [nextItem, ...galleryItems.value]
+  void signAndPatchPreview(nextItem)
+}
+
+function retryFailedUploads() {
+  const failedIds = queueItems.value
+    .filter((item) => item.status === 'failed')
+    .map((item) => item.id)
+
+  if (!failedIds.length) return
+
+  for (const id of failedIds) {
+    retryUpload(id)
+  }
+  if (canLoadApp.value) {
+    void startUpload()
+  }
 }
 
 async function startUpload() {
@@ -851,6 +1018,9 @@ async function startUpload() {
 
   uploadBusy.value = true
   uploadError.value = ''
+  const existingGallerySignatures = gallerySignatureSet()
+  const queuedSignaturesInRun = new Set()
+  const skippedDuplicates = []
 
   for (const row of candidates) {
     if (!isOnline.value) {
@@ -863,13 +1033,25 @@ async function startUpload() {
 
     const file = row.file
     const mimeType = normalizedMime(file)
+    const signature = fileSignatureFromNameAndSize(file?.name, file?.size)
 
     if (!mimeType) {
       row.status = 'failed'
       row.error = 'Unsupported file type. Use JPEG, PNG, WEBP, HEIC, HEIF, MP4, or MOV.'
-      await persistQueueItem(row)
+      await removeQueueItemFromStorage(row.id)
       continue
     }
+
+    if (existingGallerySignatures.has(signature) || queuedSignaturesInRun.has(signature)) {
+      skippedDuplicates.push({
+        name: String(file?.name || 'File'),
+        message: duplicateUploadMessage(file),
+      })
+      await removeQueueItemFromStorage(row.id)
+      queueItems.value = queueItems.value.filter((item) => item.id !== row.id)
+      continue
+    }
+    queuedSignaturesInRun.add(signature)
 
     try {
       row.status = 'requesting-ticket'
@@ -893,6 +1075,12 @@ async function startUpload() {
       await persistQueueItem(row)
       await withRetries(() => withSessionRetry(() => completeUpload(ticket.mediaId)))
 
+      injectUploadedMedia({
+        mediaId: ticket.mediaId,
+        row,
+        mimeType,
+      })
+
       row.status = 'published'
       row.progress = 100
       row.error = ''
@@ -903,15 +1091,36 @@ async function startUpload() {
       row.progress = 0
       if (await maybeReauth(err)) {
         row.error = 'Session expired. Please refresh this page.'
-        await persistQueueItem(row)
+        await removeQueueItemFromStorage(row.id)
         break
       }
       row.error = isOnline.value ? normalizeUploadError(err) : 'Waiting for internet connection.'
-      await persistQueueItem(row)
+      if (row.status === 'queued') {
+        await persistQueueItem(row)
+      } else {
+        await removeQueueItemFromStorage(row.id)
+      }
     }
   }
 
   uploadBusy.value = false
+
+  if (skippedDuplicates.length) {
+    if (skippedDuplicates.length === 1) {
+      uploadError.value = `${skippedDuplicates[0].name}: ${skippedDuplicates[0].message}`
+    } else {
+      const first = skippedDuplicates[0]
+      uploadError.value = `${skippedDuplicates.length} duplicate file(s) were skipped. ${first.name}: ${first.message}`
+    }
+  }
+
+  // Drain any new queued files added while this run was in-flight.
+  const hasQueued = queueItems.value.some((item) => item.status === 'queued')
+  if (hasQueued && canLoadApp.value && isOnline.value) {
+    queueMicrotask(() => {
+      void startUpload()
+    })
+  }
 }
 
 async function deleteMediaItem(item) {
@@ -929,11 +1138,10 @@ async function deleteMediaItem(item) {
     if (viewerMediaId.value === item.id) {
       closeViewer()
     }
-    await loadGallery({ reset: true })
+    galleryItems.value = galleryItems.value.filter((row) => row.id !== item.id)
+    void loadGallery({ reset: true })
   } catch (err) {
-    if (!(await maybeReauth(err))) {
-      galleryError.value = normalizeUploadError(err)
-    }
+    galleryError.value = normalizeUploadError(err)
   } finally {
     setDeleting(item.id, false)
   }
@@ -943,7 +1151,7 @@ watch(
   () => [viewerOpen.value, viewerMediaId.value],
   async ([open, mediaId]) => {
     if (!open || !mediaId) return
-    const item = galleryItems.value.find((row) => row.id === mediaId)
+    const item = viewerItem.value
     if (!item) {
       closeViewer()
       return
@@ -1072,12 +1280,35 @@ onUnmounted(() => {
             </div>
           </header>
 
+          <div v-if="showUploadStatus" class="upload-status" role="status" aria-live="polite">
+            <div class="upload-status-copy">
+              <p>{{ uploadStatusMessage }}</p>
+              <ul v-if="uploadFailureDetails.length" class="upload-fail-list">
+                <li v-for="detail in uploadFailureDetails" :key="detail.id">
+                  <strong>{{ detail.name }}:</strong> {{ detail.reason }}
+                </li>
+                <li v-if="failedUploadCount > uploadFailureDetails.length">
+                  +{{ failedUploadCount - uploadFailureDetails.length }} more
+                </li>
+              </ul>
+            </div>
+            <button
+              v-if="failedUploadCount > 0"
+              class="btn soft upload-status-btn"
+              type="button"
+              :disabled="uploadBusy"
+              @click="retryFailedUploads"
+            >
+              Retry failed
+            </button>
+          </div>
+
           <ErrorState v-if="galleryError && !galleryItems.length" :message="galleryError"
             @retry="loadGallery({ reset: true })" />
 
           <LoadingState v-else-if="galleryLoading && !galleryItems.length" />
 
-          <EmptyState v-else-if="!galleryItems.length" @upload-click="uploadPanelOpen = true" />
+          <EmptyState v-else-if="!galleryItems.length" @upload-click="openNativeUploadPicker" />
 
           <template v-else>
             <p v-if="galleryError" class="error-text">{{ galleryError }}</p>
@@ -1108,7 +1339,7 @@ onUnmounted(() => {
             </div>
 
             <div class="gallery-feed" :class="`mobile-${mobileFeedMode}`">
-              <button class="upload-card" type="button" @click="uploadPanelOpen = true">
+              <button class="upload-card" type="button" @click="openNativeUploadPicker">
                 <span class="upload-card-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
                     <path d="M12 4l5 5h-3v6h-4V9H7l5-5zm-7 13h14v3H5v-3z" fill="currentColor" />
@@ -1152,10 +1383,14 @@ onUnmounted(() => {
       @media-error="handleViewerMediaError"
     />
 
-    <UploadPanel :open="uploadPanelOpen" :queue-items="queueItems" :selected-count="selectedCount"
-      :upload-busy="uploadBusy" :upload-error="uploadError" :capture-window-label="captureWindowLabel"
-      @close="uploadPanelOpen = false" @files-selected="addSelectedFiles" @upload="startUpload" @retry="retryUpload"
-      @remove="removeQueueItem" />
+    <input
+      ref="nativePickerRef"
+      class="native-upload-input"
+      type="file"
+      multiple
+      accept="image/*,video/mp4,video/quicktime"
+      @change="handleNativePickerChange"
+    />
   </div>
 </template>
 
@@ -1312,6 +1547,46 @@ h2 {
   margin-top: 2px;
 }
 
+.upload-status {
+  border: 1px solid rgba(92, 138, 150, 0.25);
+  border-radius: 10px;
+  background: rgba(244, 248, 250, 0.9);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.upload-status p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--warm-text-dark);
+}
+
+.upload-status-copy {
+  min-width: 0;
+}
+
+.upload-fail-list {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: 0.77rem;
+  color: var(--warm-brown-muted);
+  display: grid;
+  gap: 3px;
+}
+
+.upload-fail-list li {
+  line-height: 1.3;
+}
+
+.upload-status-btn {
+  min-height: 34px;
+  padding: 6px 11px;
+  font-size: 0.76rem;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1321,6 +1596,15 @@ h2 {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   border: 0;
+}
+
+.native-upload-input {
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  position: fixed;
+  left: -9999px;
+  pointer-events: none;
 }
 
 @media (min-width: 700px) {
