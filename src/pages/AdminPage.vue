@@ -687,20 +687,20 @@ onMounted(async () => {
 
           <section class="delivery-attempts">
             <div class="list-head">
-              <h3>Delivery attempts</h3>
+              <h3>Invite delivery attempts</h3>
               <button
                 class="btn soft"
                 type="button"
                 :disabled="loadingDeliveryAttempts || saving"
                 @click="refreshDeliveryAttempts"
               >
-                {{ loadingDeliveryAttempts ? 'Refreshing…' : 'Refresh attempts' }}
+                {{ loadingDeliveryAttempts ? 'Refreshing…' : 'Refresh invite attempts' }}
               </button>
             </div>
 
             <p v-if="deliveryAttemptsError" class="error-text">{{ deliveryAttemptsError }}</p>
-            <p v-else-if="loadingDeliveryAttempts" class="muted">Loading delivery attempts…</p>
-            <p v-else-if="!deliveryAttempts.length" class="muted">No delivery attempts yet.</p>
+            <p v-else-if="loadingDeliveryAttempts" class="muted">Loading invite delivery attempts…</p>
+            <p v-else-if="!deliveryAttempts.length" class="muted">No invite delivery attempts yet.</p>
 
             <table v-else class="invite-table attempts-table">
               <thead>
