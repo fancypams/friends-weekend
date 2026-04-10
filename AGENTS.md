@@ -108,6 +108,20 @@ Examples:
 - `fix/map-missing-coordinates`
 - `docs/update-local-dev-setup`
 
+## Versioning Criteria
+Use Semantic Versioning (`MAJOR.MINOR.PATCH`) in `package.json`.
+
+- Bump `MAJOR` for intentionally breaking behavior/contracts.
+- Bump `MINOR` for backward-compatible features.
+- Bump `PATCH` for backward-compatible bug fixes, maintenance, or docs-only changes.
+
+Agent requirements when a release is requested:
+1. Propose the target bump level with a one-line rationale.
+2. Update `package.json` version in the same change set.
+3. Ensure build metadata footer (`vX.Y.Z (sha)`) will reflect the release commit.
+4. Create an annotated `vX.Y.Z` tag after the release commit is finalized.
+5. Do not retag or move existing published release tags.
+
 ## Quality Gates
 Minimum validation before marking work complete:
 - Always run `npm run build` and confirm success.
