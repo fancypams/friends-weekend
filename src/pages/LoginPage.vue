@@ -157,11 +157,44 @@ function clearAuthCallbackQueryFromUrl() {
     }
   }
 
+  const rawHash = String(url.hash || '')
+  if (rawHash.includes('?')) {
+    const [hashPath, hashQuery = ''] = rawHash.split('?')
+    const hashParams = new URLSearchParams(hashQuery)
+    let hashChanged = false
+
+    for (const key of AUTH_CALLBACK_QUERY_KEYS) {
+      if (hashParams.has(key)) {
+        hashParams.delete(key)
+        hashChanged = true
+      }
+    }
+
+    if (hashChanged) {
+      const nextHashQuery = hashParams.toString()
+      url.hash = nextHashQuery ? `${hashPath}?${nextHashQuery}` : hashPath
+      changed = true
+    }
+  }
+
   if (!changed) return
 
   const search = url.searchParams.toString()
   const nextUrl = `${url.origin}${url.pathname}${search ? `?${search}` : ''}${url.hash}`
   window.history.replaceState(window.history.state, '', nextUrl)
+}
+
+async function exchangeHashCodeForSession() {
+  if (!supabase) return
+
+  const hashParams = parseHashParams()
+  const hashCode = String(hashParams.get('code') || '').trim()
+  if (!hashCode) return
+
+  const { error } = await supabase.auth.exchangeCodeForSession(hashCode)
+  if (error) {
+    throw error
+  }
 }
 
 function isInviteMissError(err) {
@@ -183,6 +216,24 @@ function isInviteMissError(err) {
 function resetInvite404() {
   showInvite404.value = false
   errorMsg.value = ''
+}
+
+function parseRetryCooldownSeconds(err) {
+  const status = Number(err?.status || err?.statusCode || 0)
+  const message = String(err?.message || '')
+  const lowered = message.toLowerCase()
+
+  const secondsMatch = lowered.match(/after\s+(\d+)\s+seconds?/)
+  if (secondsMatch?.[1]) {
+    const parsed = Number(secondsMatch[1])
+    if (Number.isFinite(parsed) && parsed > 0) return parsed
+  }
+
+  if (status === 429 || lowered.includes('rate limit') || lowered.includes('for security purposes')) {
+    return RATE_LIMIT_COOLDOWN_SECONDS
+  }
+
+  return 0
 }
 
 async function routeAfterLogin() {
@@ -232,9 +283,10 @@ async function submitMagicLink() {
     infoMsg.value = `Magic link sent to ${email.value.trim().toLowerCase()}. Open it on this device.`
   } catch (err) {
     const message = err?.message || 'Failed to send magic link'
-    if (message.toLowerCase().includes('rate limit')) {
-      startCooldown(RATE_LIMIT_COOLDOWN_SECONDS)
-      errorMsg.value = `Too many email requests. Wait ${RATE_LIMIT_COOLDOWN_SECONDS} seconds and try again.`
+    const retrySeconds = parseRetryCooldownSeconds(err)
+    if (retrySeconds > 0) {
+      startCooldown(retrySeconds)
+      errorMsg.value = `For security, wait ${retrySeconds} seconds before trying again.`
     } else if (isInviteMissError(err)) {
       showInvite404.value = true
     } else {
@@ -246,14 +298,21 @@ async function submitMagicLink() {
 }
 
 onMounted(async () => {
+  syncCooldownFromStorage()
+  startCooldownTicker()
+
+  try {
+    await exchangeHashCodeForSession()
+  } catch (err) {
+    errorMsg.value = err?.message || 'Could not complete sign in from that link. Request a new magic link and try again.'
+    clearAuthErrorFromUrl()
+  }
+
   const callbackError = getAuthErrorFromUrl()
   if (callbackError) {
     errorMsg.value = callbackError
     clearAuthErrorFromUrl()
   }
-
-  syncCooldownFromStorage()
-  startCooldownTicker()
 
   if (supabase) {
     const listener = supabase.auth.onAuthStateChange(async (_event, _session) => {
