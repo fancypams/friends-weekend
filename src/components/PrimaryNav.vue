@@ -20,7 +20,8 @@ const extrasLinks = [
   { to: '/ghost-stories', label: 'Ghost Stories' },
 ]
 
-const showDesktopNav = computed(() => route.path !== '/login')
+const hiddenNavPaths = new Set(['/login', '/auth/callback'])
+const showDesktopNav = computed(() => !hiddenNavPaths.has(route.path))
 
 const extrasActive = computed(() => extrasLinks.some((l) => route.path === l.to))
 

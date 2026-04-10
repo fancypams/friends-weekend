@@ -20,6 +20,7 @@ const extrasOpen = ref(false)
 const router = useRouter()
 const route = useRoute()
 const windowWidth = ref(typeof window === 'undefined' ? 0 : window.innerWidth)
+const hiddenNavPaths = new Set(['/login', '/auth/callback'])
 
 // ── Cloud animation ──
 const headerRef = ref(null)
@@ -98,12 +99,12 @@ const countdownUnits = computed(() => [
 ])
 
 const showDesktopNav = computed(() => (
-  route.path !== '/login'
+  !hiddenNavPaths.has(route.path)
   && windowWidth.value >= 900
 ))
 
 const showHamburger = computed(() => {
-  if (route.path === '/login') return false
+  if (hiddenNavPaths.has(route.path)) return false
   return !showDesktopNav.value
 })
 

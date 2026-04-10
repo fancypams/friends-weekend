@@ -9,6 +9,7 @@ import WhaleSightingsPage from '../pages/WhaleSightingsPage.vue'
 import GhostStoriesPage from '../pages/GhostStoriesPage.vue'
 import AdminPage from '../pages/AdminPage.vue'
 import LoginPage from '../pages/LoginPage.vue'
+import AuthCallbackPage from '../pages/AuthCallbackPage.vue'
 import { bypassAuth, hasSupabaseConfig } from '../lib/supabaseClient'
 import { getCurrentSession, setPostLoginRedirect } from '../lib/authAccess'
 
@@ -36,6 +37,7 @@ async function hasActiveSession() {
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    { path: '/auth/callback', component: AuthCallbackPage, meta: { breadcrumb: 'Auth Callback' } },
     { path: '/login', component: LoginPage, meta: { breadcrumb: 'Login' } },
     { path: '/', component: HomePage, meta: { requiresAuth: true } },
     { path: '/basics', component: BasicsPage, meta: { requiresAuth: true, breadcrumb: 'Basics' } },

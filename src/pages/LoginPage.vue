@@ -25,7 +25,19 @@ const nowMs = ref(Date.now())
 const COOLDOWN_SECONDS = 60
 const RATE_LIMIT_COOLDOWN_SECONDS = 180
 const COOLDOWN_KEY = 'magic-link-cooldown-until'
-const AUTH_CALLBACK_QUERY_KEYS = ['code', 'error', 'error_code', 'error_description', 'sb']
+const AUTH_CALLBACK_QUERY_KEYS = [
+  'code',
+  'error',
+  'error_code',
+  'error_description',
+  'sb',
+  'access_token',
+  'refresh_token',
+  'expires_at',
+  'expires_in',
+  'token_type',
+  'type',
+]
 
 let cooldownTimer = null
 let authSubscription = null
@@ -93,7 +105,7 @@ function resolveMagicLinkRedirectTo() {
 
   const overrideOrigin = normalizeOrigin(import.meta.env.VITE_MAGIC_LINK_REDIRECT_ORIGIN)
   const origin = overrideOrigin || window.location.origin
-  return `${origin}/#/login`
+  return `${origin}/#/auth/callback`
 }
 
 function parseHashParams() {
@@ -107,8 +119,19 @@ function parseHashParams() {
     return new URLSearchParams(hashValue.split('?')[1] || '')
   }
 
+  const encodedFragmentIndex = hashValue.toLowerCase().indexOf('%23')
+  if (encodedFragmentIndex >= 0) {
+    return new URLSearchParams(hashValue.slice(encodedFragmentIndex + 3))
+  }
+
+  const decodedHash = decodeURIComponent(hashValue)
+  const decodedFragmentIndex = decodedHash.indexOf('#')
+  if (decodedFragmentIndex >= 0) {
+    return new URLSearchParams(decodedHash.slice(decodedFragmentIndex + 1))
+  }
+
   const normalized = hashValue.replace(/^\//, '')
-  if (normalized.includes('error=')) {
+  if (normalized.includes('error=') || normalized.includes('access_token=')) {
     return new URLSearchParams(normalized)
   }
 
@@ -192,6 +215,23 @@ async function exchangeHashCodeForSession() {
   if (!hashCode) return
 
   const { error } = await supabase.auth.exchangeCodeForSession(hashCode)
+  if (error) {
+    throw error
+  }
+}
+
+async function setSessionFromHashTokens() {
+  if (!supabase) return
+
+  const hashParams = parseHashParams()
+  const accessToken = String(hashParams.get('access_token') || '').trim()
+  const refreshToken = String(hashParams.get('refresh_token') || '').trim()
+  if (!accessToken || !refreshToken) return
+
+  const { error } = await supabase.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  })
   if (error) {
     throw error
   }
@@ -302,6 +342,7 @@ onMounted(async () => {
   startCooldownTicker()
 
   try {
+    await setSessionFromHashTokens()
     await exchangeHashCodeForSession()
   } catch (err) {
     errorMsg.value = err?.message || 'Could not complete sign in from that link. Request a new magic link and try again.'
