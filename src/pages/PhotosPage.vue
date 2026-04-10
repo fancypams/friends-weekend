@@ -15,7 +15,7 @@ import {
   removeMedia,
   signMediaUrl,
   uploadWithSignedTicket,
-} from '../lib/photosApi'
+} from '../lib/mediaApi'
 
 const session = ref(null)
 const profile = ref(null)
