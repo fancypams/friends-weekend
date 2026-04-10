@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import HeroHeader from '../components/HeroHeader.vue'
 import { getAuthState } from '../lib/authAccess'
 import { bypassAuth } from '../lib/supabaseClient'
@@ -39,6 +39,14 @@ const operationProgress = ref({
   total: 0,
 })
 const MAX_BATCH_CONCURRENCY = 3
+const ADMIN_POLL_INTERVAL_MS = 15000
+let attemptsPollTimer = null
+
+const onVisibilityChange = () => {
+  if (typeof document === 'undefined') return
+  if (document.visibilityState !== 'visible') return
+  void pollAttempts()
+}
 
 const sortedInvites = computed(() => (
   [...invites.value].sort((a, b) => String(a.email || '').localeCompare(String(b.email || '')))
@@ -123,6 +131,7 @@ function getBatchRowValidationError(rawRow) {
 
 async function refreshInvites() {
   if (!canManage.value) return
+  if (loadingInvites.value) return
   loadingInvites.value = true
   errorMsg.value = ''
   try {
@@ -143,6 +152,7 @@ async function refreshInvites() {
 
 async function refreshDeliveryAttempts() {
   if (!canManage.value) return
+  if (loadingDeliveryAttempts.value) return
   loadingDeliveryAttempts.value = true
   deliveryAttemptsError.value = ''
   try {
@@ -157,6 +167,7 @@ async function refreshDeliveryAttempts() {
 
 async function refreshMagicLinkAttempts() {
   if (!canManage.value) return
+  if (loadingMagicLinkAttempts.value) return
   loadingMagicLinkAttempts.value = true
   magicLinkAttemptsError.value = ''
   try {
@@ -494,6 +505,35 @@ async function remove(row) {
   }
 }
 
+async function pollAttempts() {
+  if (!canManage.value || saving.value) return
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+  await Promise.all([
+    refreshDeliveryAttempts(),
+    refreshMagicLinkAttempts(),
+  ])
+}
+
+function startAttemptsPolling() {
+  if (attemptsPollTimer || typeof window === 'undefined') return
+  attemptsPollTimer = window.setInterval(() => {
+    void pollAttempts()
+  }, ADMIN_POLL_INTERVAL_MS)
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', onVisibilityChange)
+  }
+}
+
+function stopAttemptsPolling() {
+  if (attemptsPollTimer) {
+    clearInterval(attemptsPollTimer)
+    attemptsPollTimer = null
+  }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+  }
+}
+
 onMounted(async () => {
   if (bypassAuth) {
     canManage.value = true
@@ -501,6 +541,7 @@ onMounted(async () => {
     await refreshInvites()
     await refreshDeliveryAttempts()
     await refreshMagicLinkAttempts()
+    startAttemptsPolling()
     return
   }
 
@@ -511,12 +552,17 @@ onMounted(async () => {
       await refreshInvites()
       await refreshDeliveryAttempts()
       await refreshMagicLinkAttempts()
+      startAttemptsPolling()
     }
   } catch (err) {
     errorMsg.value = err?.message || 'Could not verify admin access.'
   } finally {
     authLoading.value = false
   }
+})
+
+onBeforeUnmount(() => {
+  stopAttemptsPolling()
 })
 </script>
 
