@@ -1,5 +1,5 @@
 import { handleOptions } from '../_shared/cors.ts'
-import { assertMethod, badRequest, json, serverError } from '../_shared/http.ts'
+import { assertMethod, badRequest, forbidden, json, serverError } from '../_shared/http.ts'
 import { createAdminClient } from '../_shared/auth.ts'
 import { writeFunnelEvent } from '../_shared/funnel.ts'
 
@@ -29,11 +29,97 @@ const ALLOWED_STATUS = new Set([
   'invalid',
   'rate_limited',
 ])
+const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000
+const RATE_LIMIT_MAX_EVENTS = 120
 
 function clean(value: unknown, max = 120) {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
   return raw.slice(0, max)
+}
+
+function parseAllowedOrigins() {
+  const explicit = String(Deno.env.get('TELEMETRY_ALLOWED_ORIGINS') ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  const publicAppUrl = String(Deno.env.get('PUBLIC_APP_URL') ?? '').trim()
+  let fromApp = ''
+  try {
+    fromApp = publicAppUrl ? new URL(publicAppUrl).origin : ''
+  } catch {
+    fromApp = ''
+  }
+
+  const defaults = [
+    fromApp,
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ].filter(Boolean)
+
+  return new Set([...defaults, ...explicit])
+}
+
+function getOrigin(req: Request) {
+  const rawOrigin = String(req.headers.get('origin') || '').trim()
+  if (rawOrigin) return rawOrigin
+
+  const referer = String(req.headers.get('referer') || '').trim()
+  if (!referer) return ''
+  try {
+    return new URL(referer).origin
+  } catch {
+    return ''
+  }
+}
+
+function readClientIp(req: Request) {
+  const forwarded = String(req.headers.get('x-forwarded-for') || '').trim()
+  if (!forwarded) return ''
+  return forwarded.split(',')[0]?.trim() || ''
+}
+
+async function isRateLimited(admin: ReturnType<typeof createAdminClient>, clientIp: string) {
+  if (!clientIp) return false
+  const cutoffIso = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString()
+
+  const { count, error } = await admin
+    .from('funnel_events')
+    .select('id', { count: 'exact', head: true })
+    .eq('journey', 'invite_auth')
+    .gte('created_at', cutoffIso)
+    .eq('context->>client_ip', clientIp)
+
+  if (error) {
+    console.error('Failed rate-limit query', error)
+    return false
+  }
+
+  return Number(count || 0) >= RATE_LIMIT_MAX_EVENTS
+}
+
+async function isDuplicateEvent(admin: ReturnType<typeof createAdminClient>, requestId: string, step: string, status: string) {
+  if (!requestId) return false
+  const cutoffIso = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString()
+
+  const { data, error } = await admin
+    .from('funnel_events')
+    .select('id')
+    .eq('journey', 'invite_auth')
+    .eq('request_id', requestId)
+    .eq('step', step)
+    .eq('status', status)
+    .gte('created_at', cutoffIso)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Failed duplicate-check query', error)
+    return false
+  }
+
+  return Boolean(data?.id)
 }
 
 Deno.serve(async (req) => {
@@ -53,6 +139,7 @@ Deno.serve(async (req) => {
   const journey = clean(payload.journey, 80) || 'invite_auth'
   const step = clean(payload.step, 80)
   const status = clean(payload.status, 40)
+  const requestId = clean(payload.request_id, 120)
 
   if (!step || !ALLOWED_STEPS.has(step)) {
     return badRequest('Invalid telemetry step')
@@ -69,16 +156,51 @@ Deno.serve(async (req) => {
     return serverError('Missing Supabase environment', String(err))
   }
 
+  const origin = getOrigin(req)
+  const allowedOrigins = parseAllowedOrigins()
+  if (!origin || !allowedOrigins.has(origin)) {
+    return forbidden('Telemetry origin not allowed')
+  }
+
+  const clientIp = readClientIp(req)
+  const rateLimited = await isRateLimited(admin, clientIp)
+  if (rateLimited) {
+    await writeFunnelEvent(admin, {
+      journey,
+      step,
+      status: 'rate_limited',
+      requestId,
+      email: clean(payload.email, 320) || null,
+      inviteEmail: clean(payload.invite_email, 320) || null,
+      errorCode: 'telemetry_rate_limited',
+      errorMessage: 'Telemetry event dropped due to rate limiting',
+      context: {
+        client_ip: clientIp || null,
+        origin: origin || null,
+      },
+    })
+    return json({ ok: true, dropped: 'rate_limited' }, 202)
+  }
+
+  if (await isDuplicateEvent(admin, requestId, step, status)) {
+    return json({ ok: true, deduped: true })
+  }
+
   await writeFunnelEvent(admin, {
     journey,
     step,
     status,
-    requestId: clean(payload.request_id, 120) || null,
+    requestId: requestId || null,
     email: clean(payload.email, 320) || null,
     inviteEmail: clean(payload.invite_email, 320) || null,
     errorCode: clean(payload.error_code, 120) || null,
     errorMessage: clean(payload.error_message, 600) || null,
-    context: payload.context && typeof payload.context === 'object' ? payload.context : {},
+    context: {
+      ...(payload.context && typeof payload.context === 'object' ? payload.context : {}),
+      client_ip: clientIp || null,
+      origin: origin || null,
+      user_agent: String(req.headers.get('user-agent') || '').trim() || null,
+    },
   })
 
   return json({ ok: true })
