@@ -155,7 +155,6 @@ onBeforeUnmount(() => {
       <router-link to="/pre-trip" class="nav-item" @click="menuOpen = false">Pre-Trip Prep</router-link>
       <router-link to="/groceries" class="nav-item" @click="menuOpen = false">Groceries</router-link>
       <router-link to="/photos" class="nav-item" @click="menuOpen = false">Photos</router-link>
-      <router-link to="/admin" class="nav-item" @click="menuOpen = false">Admin</router-link>
       <button type="button" class="nav-item nav-extras-toggle" :class="{ open: extrasOpen }" @click="extrasOpen = !extrasOpen">
         Extras
         <svg class="extras-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
