@@ -649,6 +649,10 @@ h1 {
     padding: 20px 16px 22px;
   }
 
+  .magic-link-form input {
+    font-size: 16px;
+  }
+
   .primary-btn {
     width: 100%;
     justify-self: stretch;
