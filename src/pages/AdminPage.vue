@@ -732,20 +732,20 @@ onMounted(async () => {
 
           <section class="delivery-attempts">
             <div class="list-head">
-              <h3>Magic link attempts</h3>
+              <h3>Magic link delivery attempts</h3>
               <button
                 class="btn soft"
                 type="button"
                 :disabled="loadingMagicLinkAttempts || saving"
                 @click="refreshMagicLinkAttempts"
               >
-                {{ loadingMagicLinkAttempts ? 'Refreshing…' : 'Refresh magic links' }}
+                {{ loadingMagicLinkAttempts ? 'Refreshing…' : 'Refresh magic link attempts' }}
               </button>
             </div>
 
             <p v-if="magicLinkAttemptsError" class="error-text">{{ magicLinkAttemptsError }}</p>
-            <p v-else-if="loadingMagicLinkAttempts" class="muted">Loading magic link attempts…</p>
-            <p v-else-if="!magicLinkAttempts.length" class="muted">No magic link attempts yet.</p>
+            <p v-else-if="loadingMagicLinkAttempts" class="muted">Loading magic link delivery attempts…</p>
+            <p v-else-if="!magicLinkAttempts.length" class="muted">No magic link delivery attempts yet.</p>
 
             <table v-else class="invite-table attempts-table">
               <thead>
