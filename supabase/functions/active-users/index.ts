@@ -69,9 +69,13 @@ Deno.serve(async (req) => {
   })
 
   const activeNowCount = sortedItems.filter((row) => row.is_active_now).length
+  const activeNowExcludingSelfCount = sortedItems.filter((row) => (
+    row.is_active_now && row.user_id !== auth.user.id
+  )).length
 
   return json({
-    active_now_count: activeNowCount,
+    active_now_count: activeNowExcludingSelfCount,
+    active_now_including_self_count: activeNowCount,
     total_active_members: sortedItems.length,
     inactivity_minutes: inactivityMinutes,
     cutoff_at: new Date(cutoffMs).toISOString(),
