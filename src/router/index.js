@@ -29,6 +29,33 @@ function redirectToLogin(toPath) {
   }
 }
 
+function extractMalformedAuthParams(pathValue) {
+  const rawPath = String(pathValue || '')
+  const decoded = decodeURIComponent(rawPath)
+  const hashIndex = decoded.indexOf('#')
+  if (hashIndex < 0) return null
+
+  const fragment = decoded.slice(hashIndex + 1).replace(/^\//, '')
+  if (!fragment) return null
+
+  const params = new URLSearchParams(fragment)
+  const hasAuthPayload = (
+    params.has('access_token')
+    || params.has('refresh_token')
+    || params.has('code')
+    || params.has('error')
+    || params.has('error_code')
+    || params.has('error_description')
+  )
+  if (!hasAuthPayload) return null
+
+  const query = {}
+  for (const [key, value] of params.entries()) {
+    if (value) query[key] = value
+  }
+  return Object.keys(query).length ? query : null
+}
+
 async function hasActiveSession() {
   const session = await getCurrentSession().catch(() => null)
   return Boolean(session?.user)
@@ -48,11 +75,21 @@ const router = createRouter({
     { path: '/whales', component: WhaleSightingsPage, meta: { requiresAuth: true, breadcrumb: 'Whale Sightings' } },
     { path: '/ghost-stories', component: GhostStoriesPage, meta: { requiresAuth: true, breadcrumb: 'Ghost Stories' } },
     { path: '/admin', component: AdminPage, meta: { requiresAuth: true, breadcrumb: 'Admin' } },
+    { path: '/:pathMatch(.*)*', redirect: '/login' },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })
 
 router.beforeEach(async (to) => {
+  const malformedAuthQuery = extractMalformedAuthParams(to.path)
+  if (malformedAuthQuery) {
+    return {
+      path: '/auth/callback',
+      query: malformedAuthQuery,
+      replace: true,
+    }
+  }
+
   if (bypassAuth) {
     return true
   }

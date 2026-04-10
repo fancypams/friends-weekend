@@ -143,10 +143,11 @@ function clearAuthCallbackQueryFromUrl() {
 }
 
 function asLoginErrorQuery(details) {
+  const fallbackDescription = 'This invite link is invalid or expired. Request a new magic link and try again.'
   return {
     error: details.error || 'access_denied',
-    error_code: details.errorCode || '',
-    error_description: details.errorDescription || 'Could not complete sign in from that link.',
+    error_code: details.errorCode || 'otp_expired',
+    error_description: details.errorDescription || fallbackDescription,
   }
 }
 
@@ -195,7 +196,8 @@ onMounted(async () => {
       path: '/login',
       query: {
         error: 'access_denied',
-        error_description: err?.message || 'Could not complete sign in from that link.',
+        error_code: 'otp_expired',
+        error_description: err?.message || 'This invite link is invalid or expired. Request a new magic link and try again.',
       },
     })
   }
