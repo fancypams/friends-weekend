@@ -203,13 +203,15 @@ export async function callFunction(path, { method = 'GET', body } = {}) {
 
   const shouldRetryWithRefresh = (res, payload) => {
     if (bypassAuth || !supabase) return false
-    if (res.status !== 401) return false
+    const status = Number(res.status || 0)
+    if (status !== 401 && status !== 400) return false
 
     const message = String(payload?.error || payload?.message || '').toLowerCase()
     const code = String(payload?.code || payload?.error_code || '').toLowerCase()
 
     return (
-      code === 'invalid_jwt'
+      code === '401'
+      || code === 'invalid_jwt'
       || message.includes('invalid jwt')
       || message.includes('invalid or expired token')
       || message.includes('no active session')
