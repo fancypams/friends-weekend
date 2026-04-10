@@ -2,6 +2,7 @@ import { handleOptions } from '../_shared/cors.ts'
 import { assertMethod, badRequest, json, serverError } from '../_shared/http.ts'
 import { requireAuth } from '../_shared/auth.ts'
 import { audit } from '../_shared/audit.ts'
+import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
 type InviteAndSendPayload = {
   email?: string
@@ -11,6 +12,25 @@ type InviteAndSendPayload = {
   active?: boolean
   redirect_to?: string
   host_name?: string
+}
+
+type InviteDeliveryAttempt = {
+  invited_by: string | null
+  email: string
+  display_name: string | null
+  family: string | null
+  role: 'admin' | 'member'
+  active: boolean
+  provider?: string
+  status: 'success' | 'failed'
+  failure_stage?: string | null
+  provider_message_id?: string | null
+  error_message?: string | null
+  error_code?: string | null
+  http_status?: number | null
+  redirect_to?: string | null
+  host_name?: string | null
+  details?: Record<string, unknown>
 }
 
 function normalizeEmail(value: string) {
@@ -193,10 +213,42 @@ async function sendInviteEmail(params: {
 
   if (!res.ok) {
     const message = String(body?.message || body?.error || `Request failed (${res.status})`)
-    throw new Error(`Resend API error: ${message}`)
+    const error = new Error(`Resend API error: ${message}`)
+    const typed = error as Error & { status?: number; code?: string }
+    typed.status = res.status
+    typed.code = String(body?.code || body?.name || '')
+    throw error
   }
 
   return String(body?.id || '')
+}
+
+async function logInviteDeliveryAttempt(
+  admin: SupabaseClient,
+  attempt: InviteDeliveryAttempt,
+) {
+  try {
+    await admin.from('invite_delivery_attempts').insert({
+      invited_by: attempt.invited_by,
+      email: attempt.email,
+      display_name: attempt.display_name,
+      family: attempt.family,
+      role: attempt.role,
+      active: attempt.active,
+      provider: attempt.provider ?? 'resend',
+      status: attempt.status,
+      failure_stage: attempt.failure_stage ?? null,
+      provider_message_id: attempt.provider_message_id ?? null,
+      error_message: attempt.error_message ?? null,
+      error_code: attempt.error_code ?? null,
+      http_status: attempt.http_status ?? null,
+      redirect_to: attempt.redirect_to ?? null,
+      host_name: attempt.host_name ?? null,
+      details: attempt.details ?? {},
+    })
+  } catch (err) {
+    console.error('Failed to write invite delivery attempt', err)
+  }
 }
 
 Deno.serve(async (req) => {
@@ -221,10 +273,24 @@ Deno.serve(async (req) => {
   const family = normalizeFamily(payload.family)
   const role = normalizeRole(payload.role)
   const active = payload.active ?? true
+  const hostName = String(payload.host_name ?? Deno.env.get('FRIENDS_WEEKEND_HOST_NAME') ?? '').trim()
+  const redirectTo = resolveRedirectTo(payload.redirect_to)
 
   if (!email || !email.includes('@')) {
     return badRequest('Valid email is required')
   }
+
+  const attemptBase = {
+    invited_by: auth.user.id,
+    email,
+    display_name: displayName,
+    family,
+    role,
+    active,
+    provider: 'resend',
+    redirect_to: redirectTo || null,
+    host_name: hostName || null,
+  } satisfies Omit<InviteDeliveryAttempt, 'status'>
 
   const { data: invite, error: inviteErr } = await auth.admin
     .from('invite_allowlist')
@@ -243,10 +309,14 @@ Deno.serve(async (req) => {
     .single()
 
   if (inviteErr || !invite) {
+    await logInviteDeliveryAttempt(auth.admin, {
+      ...attemptBase,
+      status: 'failed',
+      failure_stage: 'invite_upsert',
+      error_message: inviteErr?.message || 'Failed to save invite',
+    })
     return serverError('Failed to save invite', inviteErr?.message)
   }
-
-  const redirectTo = resolveRedirectTo(payload.redirect_to)
 
   const { data: linkData, error: linkErr } = await auth.admin.auth.admin.generateLink({
     type: 'magiclink',
@@ -258,11 +328,24 @@ Deno.serve(async (req) => {
   })
 
   if (linkErr) {
+    await logInviteDeliveryAttempt(auth.admin, {
+      ...attemptBase,
+      status: 'failed',
+      failure_stage: 'magic_link_generation',
+      error_message: linkErr.message || 'Failed to generate magic link',
+      error_code: String(linkErr.code || ''),
+    })
     return serverError('Failed to generate magic link', linkErr.message)
   }
 
   const actionLink = String(linkData?.properties?.action_link || '').trim()
   if (!actionLink) {
+    await logInviteDeliveryAttempt(auth.admin, {
+      ...attemptBase,
+      status: 'failed',
+      failure_stage: 'magic_link_generation',
+      error_message: 'Magic link generation returned no action link',
+    })
     return serverError('Magic link generation returned no action link')
   }
 
@@ -272,11 +355,16 @@ Deno.serve(async (req) => {
     resendApiKey = requireEnv('RESEND_API_KEY')
     resendFrom = requireEnv('RESEND_FROM')
   } catch (err) {
+    await logInviteDeliveryAttempt(auth.admin, {
+      ...attemptBase,
+      status: 'failed',
+      failure_stage: 'provider_configuration',
+      error_message: String(err),
+    })
     return serverError('Missing email provider configuration', String(err))
   }
 
   const firstName = firstNameFromDisplayName(displayName, email)
-  const hostName = String(payload.host_name ?? Deno.env.get('FRIENDS_WEEKEND_HOST_NAME') ?? '').trim()
   const subject = `${firstName}, Seattle plans are live`
   const html = buildEmailHtml(firstName, hostName, actionLink)
   const text = buildEmailText(firstName, hostName, actionLink)
@@ -292,8 +380,28 @@ Deno.serve(async (req) => {
       text,
     })
   } catch (err) {
+    const enriched = err as Error & { status?: number; code?: string }
+    await logInviteDeliveryAttempt(auth.admin, {
+      ...attemptBase,
+      status: 'failed',
+      failure_stage: 'provider_send',
+      error_message: String(enriched?.message || err),
+      error_code: String(enriched?.code || ''),
+      http_status: Number.isFinite(Number(enriched?.status)) ? Number(enriched.status) : null,
+    })
     return serverError('Failed to send invite email', String(err))
   }
+
+  await logInviteDeliveryAttempt(auth.admin, {
+    ...attemptBase,
+    status: 'success',
+    provider_message_id: emailId || null,
+    details: {
+      invited_email: email,
+      role: invite.role,
+      active: invite.active,
+    },
+  })
 
   await audit(auth.admin, {
     actorId: auth.user.id,

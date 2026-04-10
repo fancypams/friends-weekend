@@ -1,4 +1,4 @@
-import { hasSupabaseConfig, supabase } from './supabaseClient'
+import { hasSupabaseConfig, supabase, supabaseAnonKey, supabaseFunctionUrl } from './supabaseClient'
 const SESSION_REFRESH_BUFFER_SECONDS = 60
 
 function normalizeRedirectPath(value) {
@@ -131,15 +131,29 @@ export async function sendMagicLink(email, redirectTo) {
     throw new Error('Email is required')
   }
 
-  const { error } = await supabase.auth.signInWithOtp({
-    email: normalizedEmail,
-    options: {
-      shouldCreateUser: false,
-      emailRedirectTo: redirectTo,
+  const res = await fetch(supabaseFunctionUrl('request-magic-link'), {
+    method: 'POST',
+    headers: {
+      apikey: supabaseAnonKey,
+      'Content-Type': 'application/json',
     },
+    body: JSON.stringify({
+      email: normalizedEmail,
+      redirect_to: String(redirectTo || '').trim() || null,
+      source: 'login-page',
+    }),
   })
 
-  if (error) throw error
+  const payload = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const error = new Error(
+      payload?.error || payload?.message || payload?.details || 'Failed to request magic link',
+    )
+    error.status = res.status
+    error.code = payload?.code || payload?.error_code || null
+    error.body = payload
+    throw error
+  }
 }
 
 export async function globalSignOut() {
