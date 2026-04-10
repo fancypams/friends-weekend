@@ -25,6 +25,7 @@ const nowMs = ref(Date.now())
 const COOLDOWN_SECONDS = 60
 const RATE_LIMIT_COOLDOWN_SECONDS = 180
 const COOLDOWN_KEY = 'magic-link-cooldown-until'
+const AUTH_CALLBACK_QUERY_KEYS = ['code', 'error', 'error_code', 'error_description', 'sb']
 
 let cooldownTimer = null
 let authSubscription = null
@@ -143,6 +144,26 @@ function clearAuthErrorFromUrl() {
   window.history.replaceState(window.history.state, '', cleanUrl)
 }
 
+function clearAuthCallbackQueryFromUrl() {
+  if (typeof window === 'undefined') return
+
+  const url = new URL(window.location.href)
+  let changed = false
+
+  for (const key of AUTH_CALLBACK_QUERY_KEYS) {
+    if (url.searchParams.has(key)) {
+      url.searchParams.delete(key)
+      changed = true
+    }
+  }
+
+  if (!changed) return
+
+  const search = url.searchParams.toString()
+  const nextUrl = `${url.origin}${url.pathname}${search ? `?${search}` : ''}${url.hash}`
+  window.history.replaceState(window.history.state, '', nextUrl)
+}
+
 function isInviteMissError(err) {
   const message = String(err?.message || '').toLowerCase()
   const code = String(err?.code || '').toLowerCase()
@@ -165,6 +186,8 @@ function resetInvite404() {
 }
 
 async function routeAfterLogin() {
+  clearAuthCallbackQueryFromUrl()
+
   const queryRedirect = normalizeRedirect(route.query.redirect)
   const storageRedirect = getPostLoginRedirect()
   const target = queryRedirect !== '/' ? queryRedirect : storageRedirect
