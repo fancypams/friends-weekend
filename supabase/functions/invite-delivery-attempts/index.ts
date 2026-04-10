@@ -45,7 +45,60 @@ Deno.serve(async (req) => {
     return serverError('Failed to load invite delivery attempts', error.message)
   }
 
+  const attempts = Array.isArray(data) ? data : []
+  const providerMessageIds = attempts
+    .map((row) => String(row?.provider_message_id || '').trim())
+    .filter(Boolean)
+
+  let latestEventByEmailId = new Map<string, {
+    event_type: string
+    occurred_at: string | null
+    bounce_message: string | null
+  }>()
+
+  if (providerMessageIds.length) {
+    const { data: events, error: eventsError } = await auth.admin
+      .from('resend_email_events')
+      .select('email_id,event_type,occurred_at,created_at,bounce_message')
+      .in('email_id', providerMessageIds)
+      .order('occurred_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+
+    if (!eventsError && Array.isArray(events)) {
+      latestEventByEmailId = new Map()
+      for (const row of events) {
+        const emailId = String(row?.email_id || '').trim()
+        if (!emailId || latestEventByEmailId.has(emailId)) continue
+        latestEventByEmailId.set(emailId, {
+          event_type: String(row?.event_type || '').trim(),
+          occurred_at: row?.occurred_at ?? null,
+          bounce_message: row?.bounce_message ?? null,
+        })
+      }
+    }
+  }
+
+  const enrichedItems = attempts.map((row) => {
+    const emailId = String(row?.provider_message_id || '').trim()
+    if (!emailId) {
+      return {
+        ...row,
+        latest_provider_event: null,
+        latest_provider_event_at: null,
+        latest_provider_event_message: null,
+      }
+    }
+
+    const latest = latestEventByEmailId.get(emailId) || null
+    return {
+      ...row,
+      latest_provider_event: latest?.event_type || null,
+      latest_provider_event_at: latest?.occurred_at || null,
+      latest_provider_event_message: latest?.bounce_message || null,
+    }
+  })
+
   return json({
-    items: data ?? [],
+    items: enrichedItems,
   })
 })

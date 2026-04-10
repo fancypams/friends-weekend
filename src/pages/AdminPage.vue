@@ -709,6 +709,7 @@ onMounted(async () => {
                   <th>Email</th>
                   <th>Status</th>
                   <th>Stage</th>
+                  <th>Provider event</th>
                   <th>Error</th>
                   <th>Provider ID</th>
                 </tr>
@@ -723,6 +724,15 @@ onMounted(async () => {
                     </span>
                   </td>
                   <td>{{ row.failure_stage || '—' }}</td>
+                  <td>
+                    <span v-if="row.latest_provider_event">
+                      {{ row.latest_provider_event }}
+                    </span>
+                    <span v-else>—</span>
+                    <span v-if="row.latest_provider_event_at">
+                      · {{ formatAttemptTime(row.latest_provider_event_at) }}
+                    </span>
+                  </td>
                   <td>{{ row.error_message || '—' }}</td>
                   <td>{{ row.provider_message_id || '—' }}</td>
                 </tr>
