@@ -20,7 +20,6 @@ export const supabase = hasSupabaseConfig
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
-        flowType: 'pkce',
         storageKey: 'friends-weekend-auth',
       },
     })
