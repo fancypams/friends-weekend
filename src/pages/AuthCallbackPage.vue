@@ -3,15 +3,16 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearPostLoginRedirect, getPostLoginRedirect } from '../lib/authAccess'
 import { hasSupabaseConfig, supabase } from '../lib/supabaseClient'
-import { trackFunnelEvent } from '../lib/telemetryApi'
+import { clearTelemetryAuthContext, setTelemetryAuthContext, trackFunnelEvent } from '../lib/telemetryApi'
 
 const route = useRoute()
 const router = useRouter()
 const statusMessage = ref('Signing you in...')
-const TELEMETRY_REQUEST_ID_KEY = 'auth-funnel-request-id'
 
 const AUTH_CALLBACK_QUERY_KEYS = [
   'rid',
+  'rts',
+  'rsig',
   'code',
   'error',
   'error_code',
@@ -28,23 +29,6 @@ const AUTH_CALLBACK_QUERY_KEYS = [
 function normalizeRequestId(value) {
   const raw = String(value || '').trim()
   return raw.slice(0, 120)
-}
-
-function getStoredRequestId() {
-  if (typeof localStorage === 'undefined') return ''
-  return normalizeRequestId(localStorage.getItem(TELEMETRY_REQUEST_ID_KEY) || '')
-}
-
-function setStoredRequestId(value) {
-  if (typeof localStorage === 'undefined') return
-  const normalized = normalizeRequestId(value)
-  if (!normalized) return
-  localStorage.setItem(TELEMETRY_REQUEST_ID_KEY, normalized)
-}
-
-function clearStoredRequestId() {
-  if (typeof localStorage === 'undefined') return
-  localStorage.removeItem(TELEMETRY_REQUEST_ID_KEY)
 }
 
 function normalizeRedirect(value) {
@@ -92,7 +76,18 @@ function readCallbackParams() {
     route.query.rid
     || searchParams.get('rid')
     || hashParams.get('rid')
-    || getStoredRequestId()
+    || '',
+  ).trim()
+  const requestTs = String(
+    route.query.rts
+    || searchParams.get('rts')
+    || hashParams.get('rts')
+    || '',
+  ).trim()
+  const requestSig = String(
+    route.query.rsig
+    || searchParams.get('rsig')
+    || hashParams.get('rsig')
     || '',
   ).trim()
 
@@ -129,6 +124,8 @@ function readCallbackParams() {
 
   return {
     requestId,
+    requestTs,
+    requestSig,
     code,
     accessToken,
     refreshToken,
@@ -207,33 +204,27 @@ function asLoginErrorQuery(details) {
   }
 }
 
-async function routeAfterLogin(requestId = '') {
+async function routeAfterLogin() {
   const target = normalizeRedirect(getPostLoginRedirect())
   clearPostLoginRedirect()
   try {
     await router.replace(target || '/')
-    if (requestId) {
-      await trackFunnelEvent({
-        journey: 'invite_auth',
-        step: 'post_login_redirect',
-        status: 'success',
-        request_id: requestId,
-      }).catch(() => {})
-    }
+    await trackFunnelEvent({
+      journey: 'invite_auth',
+      step: 'post_login_redirect',
+      status: 'success',
+    }).catch(() => {})
   } catch (err) {
-    if (requestId) {
-      await trackFunnelEvent({
-        journey: 'invite_auth',
-        step: 'post_login_redirect',
-        status: 'failed',
-        request_id: requestId,
-        error_code: 'redirect_failed',
-        error_message: String(err?.message || err),
-      }).catch(() => {})
-    }
+    await trackFunnelEvent({
+      journey: 'invite_auth',
+      step: 'post_login_redirect',
+      status: 'failed',
+      error_code: 'redirect_failed',
+      error_message: String(err?.message || err),
+    }).catch(() => {})
     throw err
   } finally {
-    clearStoredRequestId()
+    clearTelemetryAuthContext()
   }
 }
 
@@ -246,12 +237,15 @@ onMounted(async () => {
   const callback = readCallbackParams()
   const requestId = normalizeRequestId(callback.requestId)
   if (requestId) {
-    setStoredRequestId(requestId)
+    setTelemetryAuthContext({
+      request_id: requestId,
+      request_ts: String(callback.requestTs || ''),
+      request_sig: String(callback.requestSig || ''),
+    })
     await trackFunnelEvent({
       journey: 'invite_auth',
       step: 'magic_link_clicked',
       status: 'observed',
-      request_id: requestId,
     }).catch(() => {})
   }
 
@@ -262,7 +256,6 @@ onMounted(async () => {
         journey: 'invite_auth',
         step: 'callback_session_exchange',
         status: classifiedStatus,
-        request_id: requestId,
         error_code: callback.errorCode || callback.error || 'access_denied',
         error_message: callback.errorDescription || 'Could not complete sign in from that link.',
       }).catch(() => {})
@@ -294,12 +287,11 @@ onMounted(async () => {
         journey: 'invite_auth',
         step: 'callback_session_exchange',
         status: 'success',
-        request_id: requestId,
       }).catch(() => {})
     }
 
     clearAuthCallbackQueryFromUrl()
-    await routeAfterLogin(requestId)
+    await routeAfterLogin()
   } catch (err) {
     const status = classifyCallbackFailure(err?.code, err?.message)
     if (requestId) {
@@ -307,7 +299,6 @@ onMounted(async () => {
         journey: 'invite_auth',
         step: 'callback_session_exchange',
         status,
-        request_id: requestId,
         error_code: String(err?.code || 'access_denied'),
         error_message: String(err?.message || 'Could not complete sign in from that link.'),
       }).catch(() => {})

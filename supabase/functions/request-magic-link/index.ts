@@ -3,6 +3,7 @@ import { handleOptions } from '../_shared/cors.ts'
 import { assertMethod, badRequest, json, serverError } from '../_shared/http.ts'
 import { createAdminClient } from '../_shared/auth.ts'
 import { writeFunnelEvent } from '../_shared/funnel.ts'
+import { signTelemetryContext } from '../_shared/telemetry-signature.ts'
 
 type RequestMagicLinkPayload = {
   email?: string
@@ -52,16 +53,21 @@ function normalizeRequestId(value: string | undefined) {
   return trimmed.slice(0, 120) || crypto.randomUUID()
 }
 
-function appendRequestIdToRedirect(redirectTo: string, requestId: string) {
+function appendTelemetryContextToRedirect(redirectTo: string, requestId: string, requestTs: string, requestSig: string) {
   const raw = String(redirectTo || '').trim()
-  if (!raw || !requestId) return raw
-  if (raw.includes('rid=')) return raw
+  if (!raw || !requestId || !requestTs || !requestSig) return raw
+  if (raw.includes('rid=') && raw.includes('rts=') && raw.includes('rsig=')) return raw
 
   const hashIndex = raw.indexOf('#')
   const base = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw
   const hash = hashIndex >= 0 ? raw.slice(hashIndex) : ''
-  const separator = base.includes('?') ? '&' : '?'
-  return `${base}${separator}rid=${encodeURIComponent(requestId)}${hash}`
+  const params = new URLSearchParams(base.split('?')[1] || '')
+  params.set('rid', requestId)
+  params.set('rts', requestTs)
+  params.set('rsig', requestSig)
+
+  const bareBase = base.split('?')[0] || base
+  return `${bareBase}?${params.toString()}${hash}`
 }
 
 function requireEnv(name: string) {
@@ -113,7 +119,14 @@ Deno.serve(async (req) => {
 
   const email = normalizeEmail(String(payload.email ?? ''))
   const requestId = normalizeRequestId(payload.request_id)
-  const redirectTo = appendRequestIdToRedirect(normalizeRedirectTo(payload.redirect_to), requestId)
+  const requestTs = String(Math.floor(Date.now() / 1000))
+  const requestSig = await signTelemetryContext(requestId, requestTs)
+  const redirectTo = appendTelemetryContextToRedirect(
+    normalizeRedirectTo(payload.redirect_to),
+    requestId,
+    requestTs,
+    requestSig,
+  )
   const source = normalizeSource(payload.source)
   const userAgent = String(req.headers.get('user-agent') || '').trim() || null
   const requestIp = readRequestIp(req)
@@ -263,5 +276,10 @@ Deno.serve(async (req) => {
     })
   }
 
-  return json({ sent: true, request_id: requestId })
+  return json({
+    sent: true,
+    request_id: requestId,
+    request_ts: requestTs,
+    request_sig: requestSig,
+  })
 })

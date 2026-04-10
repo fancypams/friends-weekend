@@ -2,12 +2,15 @@ import { handleOptions } from '../_shared/cors.ts'
 import { assertMethod, badRequest, forbidden, json, serverError } from '../_shared/http.ts'
 import { createAdminClient } from '../_shared/auth.ts'
 import { writeFunnelEvent } from '../_shared/funnel.ts'
+import { isTelemetryTimestampFresh, verifyTelemetryContextSignature } from '../_shared/telemetry-signature.ts'
 
 type FunnelPayload = {
   journey?: string
   step?: string
   status?: string
   request_id?: string
+  request_ts?: string
+  request_sig?: string
   email?: string
   invite_email?: string
   error_code?: string
@@ -31,11 +34,23 @@ const ALLOWED_STATUS = new Set([
 ])
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000
 const RATE_LIMIT_MAX_EVENTS = 120
+const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on'])
 
 function clean(value: unknown, max = 120) {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
   return raw.slice(0, max)
+}
+
+function cleanSignature(value: unknown) {
+  const raw = String(value ?? '').trim().toLowerCase()
+  return raw.slice(0, 512)
+}
+
+function shouldEnforceTelemetrySignature() {
+  const raw = String(Deno.env.get('TELEMETRY_ENFORCE_SIGNATURE') ?? '').trim().toLowerCase()
+  if (!raw) return false
+  return TRUE_VALUES.has(raw)
 }
 
 function parseAllowedOrigins() {
@@ -140,6 +155,20 @@ Deno.serve(async (req) => {
   const step = clean(payload.step, 80)
   const status = clean(payload.status, 40)
   const requestId = clean(payload.request_id, 120)
+  const requestTs = clean(payload.request_ts, 24)
+  const requestSig = cleanSignature(payload.request_sig)
+  const enforceSignature = shouldEnforceTelemetrySignature()
+  const hasSignatureContext = Boolean(requestId && requestTs && requestSig)
+
+  let signatureStatus: 'verified' | 'missing' | 'invalid' | 'expired' = 'missing'
+  if (hasSignatureContext) {
+    if (!isTelemetryTimestampFresh(requestTs, 7200)) {
+      signatureStatus = 'expired'
+    } else {
+      const isValidSignature = await verifyTelemetryContextSignature(requestId, requestTs, requestSig)
+      signatureStatus = isValidSignature ? 'verified' : 'invalid'
+    }
+  }
 
   if (!step || !ALLOWED_STEPS.has(step)) {
     return badRequest('Invalid telemetry step')
@@ -147,6 +176,15 @@ Deno.serve(async (req) => {
 
   if (!status || !ALLOWED_STATUS.has(status)) {
     return badRequest('Invalid telemetry status')
+  }
+  if (enforceSignature && signatureStatus === 'missing') {
+    return forbidden('Missing telemetry signature context')
+  }
+  if (enforceSignature && signatureStatus === 'expired') {
+    return forbidden('Telemetry signature expired')
+  }
+  if (enforceSignature && signatureStatus === 'invalid') {
+    return forbidden('Invalid telemetry signature')
   }
 
   let admin
@@ -177,6 +215,8 @@ Deno.serve(async (req) => {
       context: {
         client_ip: clientIp || null,
         origin: origin || null,
+        telemetry_signature_status: signatureStatus,
+        telemetry_signature_enforced: enforceSignature,
       },
     })
     return json({ ok: true, dropped: 'rate_limited' }, 202)
@@ -200,6 +240,8 @@ Deno.serve(async (req) => {
       client_ip: clientIp || null,
       origin: origin || null,
       user_agent: String(req.headers.get('user-agent') || '').trim() || null,
+      telemetry_signature_status: signatureStatus,
+      telemetry_signature_enforced: enforceSignature,
     },
   })
 
