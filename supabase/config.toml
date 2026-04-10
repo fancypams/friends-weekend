@@ -50,3 +50,12 @@ verify_jwt = false
 
 [functions.delete-grocery]
 verify_jwt = false
+
+[functions.request-magic-link]
+verify_jwt = false
+
+[functions.invite-delivery-attempts]
+verify_jwt = false
+
+[functions.magic-link-attempts]
+verify_jwt = false

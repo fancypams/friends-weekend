@@ -318,6 +318,19 @@ export async function callFunction(path, { method = 'GET', body } = {}) {
         // eslint-disable-next-line no-console
         console.error('[functionsApi] Invalid JWT diagnostics', debug)
       }
+
+      // If refresh+retry still yields invalid JWT, local auth state is stale.
+      // Clear local session to stop repeated failing requests and force re-auth.
+      try {
+        await supabase.auth.signOut({ scope: 'local' })
+      } catch {
+        // Ignore cleanup failures and surface a deterministic error instead.
+      }
+
+      const sessionError = new Error('Session expired. Please sign in again.')
+      sessionError.code = 'invalid_jwt'
+      sessionError.status = 401
+      throw sessionError
     }
 
     if (err?.name === 'AbortError') {
