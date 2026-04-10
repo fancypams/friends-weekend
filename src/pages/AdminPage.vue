@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import HeroHeader from '../components/HeroHeader.vue'
 import { getAuthState } from '../lib/authAccess'
-import { bypassAuth } from '../lib/supabaseClient'
+import { bypassAuth, supabase } from '../lib/supabaseClient'
 import {
   inviteAndSend,
   listInviteDeliveryAttempts,
@@ -39,14 +39,7 @@ const operationProgress = ref({
   total: 0,
 })
 const MAX_BATCH_CONCURRENCY = 3
-const ADMIN_POLL_INTERVAL_MS = 15000
-let attemptsPollTimer = null
-
-const onVisibilityChange = () => {
-  if (typeof document === 'undefined') return
-  if (document.visibilityState !== 'visible') return
-  void pollAttempts()
-}
+let attemptsRealtimeChannel = null
 
 const sortedInvites = computed(() => (
   [...invites.value].sort((a, b) => String(a.email || '').localeCompare(String(b.email || '')))
@@ -184,6 +177,42 @@ function formatAttemptTime(value) {
   const date = new Date(String(value || ''))
   if (Number.isNaN(date.getTime())) return '—'
   return date.toLocaleString()
+}
+
+function sortByCreatedDesc(rows) {
+  return [...rows].sort((a, b) => (
+    new Date(String(b?.created_at || 0)).getTime() - new Date(String(a?.created_at || 0)).getTime()
+  ))
+}
+
+function upsertAttemptRows(existingRows, incomingRow, limit) {
+  const incomingId = String(incomingRow?.id || '').trim()
+  if (!incomingId) return existingRows
+
+  const next = existingRows.filter((row) => String(row?.id || '') !== incomingId)
+  next.unshift(incomingRow)
+  return sortByCreatedDesc(next).slice(0, limit)
+}
+
+function removeAttemptRow(existingRows, rowId) {
+  const key = String(rowId || '').trim()
+  if (!key) return existingRows
+  return existingRows.filter((row) => String(row?.id || '') !== key)
+}
+
+function applyResendProviderEvent(row) {
+  const emailId = String(row?.email_id || '').trim()
+  if (!emailId) return
+
+  deliveryAttempts.value = deliveryAttempts.value.map((item) => {
+    if (String(item?.provider_message_id || '').trim() !== emailId) return item
+    return {
+      ...item,
+      latest_provider_event: String(row?.event_type || '').trim() || null,
+      latest_provider_event_at: row?.occurred_at ?? null,
+      latest_provider_event_message: row?.bounce_message ?? null,
+    }
+  })
 }
 
 function collectBatchRows() {
@@ -505,33 +534,63 @@ async function remove(row) {
   }
 }
 
-async function pollAttempts() {
-  if (!canManage.value || saving.value) return
-  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-  await Promise.all([
-    refreshDeliveryAttempts(),
-    refreshMagicLinkAttempts(),
-  ])
+function startAttemptsRealtime() {
+  if (!supabase || attemptsRealtimeChannel || !canManage.value) return
+
+  attemptsRealtimeChannel = supabase
+    .channel('admin-attempts-live')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'invite_delivery_attempts' },
+      (payload) => {
+        if (payload.eventType === 'DELETE') {
+          deliveryAttempts.value = removeAttemptRow(deliveryAttempts.value, payload.old?.id)
+          return
+        }
+
+        const row = payload.new || null
+        if (!row) return
+        deliveryAttempts.value = upsertAttemptRows(
+          deliveryAttempts.value,
+          {
+            ...row,
+            latest_provider_event: null,
+            latest_provider_event_at: null,
+            latest_provider_event_message: null,
+          },
+          deliveryAttemptsLimit,
+        )
+      },
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'magic_link_attempts' },
+      (payload) => {
+        if (payload.eventType === 'DELETE') {
+          magicLinkAttempts.value = removeAttemptRow(magicLinkAttempts.value, payload.old?.id)
+          return
+        }
+
+        const row = payload.new || null
+        if (!row) return
+        magicLinkAttempts.value = upsertAttemptRows(magicLinkAttempts.value, row, magicLinkAttemptsLimit)
+      },
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'resend_email_events' },
+      (payload) => {
+        if (payload.eventType === 'DELETE') return
+        applyResendProviderEvent(payload.new || null)
+      },
+    )
+    .subscribe()
 }
 
-function startAttemptsPolling() {
-  if (attemptsPollTimer || typeof window === 'undefined') return
-  attemptsPollTimer = window.setInterval(() => {
-    void pollAttempts()
-  }, ADMIN_POLL_INTERVAL_MS)
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', onVisibilityChange)
-  }
-}
-
-function stopAttemptsPolling() {
-  if (attemptsPollTimer) {
-    clearInterval(attemptsPollTimer)
-    attemptsPollTimer = null
-  }
-  if (typeof document !== 'undefined') {
-    document.removeEventListener('visibilitychange', onVisibilityChange)
-  }
+function stopAttemptsRealtime() {
+  if (!supabase || !attemptsRealtimeChannel) return
+  supabase.removeChannel(attemptsRealtimeChannel)
+  attemptsRealtimeChannel = null
 }
 
 onMounted(async () => {
@@ -541,7 +600,7 @@ onMounted(async () => {
     await refreshInvites()
     await refreshDeliveryAttempts()
     await refreshMagicLinkAttempts()
-    startAttemptsPolling()
+    startAttemptsRealtime()
     return
   }
 
@@ -552,7 +611,7 @@ onMounted(async () => {
       await refreshInvites()
       await refreshDeliveryAttempts()
       await refreshMagicLinkAttempts()
-      startAttemptsPolling()
+      startAttemptsRealtime()
     }
   } catch (err) {
     errorMsg.value = err?.message || 'Could not verify admin access.'
@@ -562,7 +621,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  stopAttemptsPolling()
+  stopAttemptsRealtime()
 })
 </script>
 
