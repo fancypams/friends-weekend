@@ -35,6 +35,7 @@ const isMobileViewport = ref(typeof window !== 'undefined' ? window.innerWidth <
 
 const mobileFeedMode = ref('grid')
 const forceCensoredPreview = ref(false)
+const uploadClockMs = ref(Date.now())
 
 const deletingById = ref({})
 const previewRetryById = ref({})
@@ -69,6 +70,7 @@ let liveSyncChannel = null
 let authHeartbeatTimer = null
 let authHeartbeatInFlight = false
 let embargoSweepTimer = null
+let uploadUnlockTimer = null
 const INITIAL_PREVIEW_COUNT = 6
 const LOAD_MORE_PREVIEW_COUNT = 2
 const INITIAL_PAGE_SIZE = 12
@@ -87,6 +89,7 @@ const UPLOAD_DB_STORE = 'queue_items'
 const CAPTURE_WINDOW_START_MS = Date.parse('2026-07-31T07:00:00.000Z') // Jul 31 00:00 Seattle (PDT)
 const CAPTURE_WINDOW_END_MS = Date.parse('2026-08-05T06:59:59.999Z') // Aug 4 23:59:59 Seattle (PDT)
 const CAPTURE_WINDOW_LABEL = 'Jul 31-Aug 4, 2026 (Seattle time)'
+const UPLOAD_UNLOCK_LABEL = 'Jul 31, 2026 (Seattle time)'
 const PT_UTC_OFFSET_HOURS = 7 // Event is in summer (PDT, UTC-7)
 const PT_OFFSET_MS = PT_UTC_OFFSET_HOURS * 60 * 60 * 1000
 const DAILY_REVEAL_HOUR_PT = 21 // 9:00 PM PT
@@ -112,6 +115,8 @@ const uploadStatusMessage = computed(() => {
   return ''
 })
 const showUploadStatus = computed(() => Boolean(uploadStatusMessage.value))
+const uploadsUnlocked = computed(() => uploadClockMs.value >= CAPTURE_WINDOW_START_MS)
+const uploadLockedNotice = computed(() => `Uploads open on ${UPLOAD_UNLOCK_LABEL}.`)
 const uploadFailureDetails = computed(() => {
   const seen = new Set()
   const details = []
@@ -351,6 +356,16 @@ function onOffline() {
 function onResize() {
   if (typeof window === 'undefined') return
   isMobileViewport.value = window.innerWidth <= 699
+}
+
+function tickUploadClock() {
+  uploadClockMs.value = Date.now()
+}
+
+function ensureUploadsUnlocked() {
+  if (uploadsUnlocked.value) return true
+  uploadError.value = uploadLockedNotice.value
+  return false
 }
 
 function hydrateDebugFlagsFromUrl() {
@@ -934,6 +949,8 @@ async function hydrateSession(nextSession) {
 }
 
 function addSelectedFiles(files) {
+  if (!ensureUploadsUnlocked()) return
+
   const existingSignatures = new Set(
     galleryItems.value
       .map((item) => `${String(item.original_filename || '').trim().toLowerCase()}::${Number(item.bytes || 0)}`)
@@ -1011,6 +1028,8 @@ function retryUpload(id) {
 }
 
 function openNativeUploadPicker() {
+  if (!ensureUploadsUnlocked()) return
+
   queueItems.value = queueItems.value.filter((item) => item.status !== 'failed')
   uploadError.value = ''
   const input = nativePickerRef.value
@@ -1139,6 +1158,7 @@ function retryFailedUploads() {
 
 async function startUpload() {
   if (uploadBusy.value || !canLoadApp.value) return
+  if (!ensureUploadsUnlocked()) return
 
   const candidates = queueItems.value.filter((item) => item.status === 'queued')
   if (!candidates.length) return
@@ -1307,6 +1327,8 @@ watch(
 onMounted(async () => {
   hydrateDebugFlagsFromUrl()
   hydrateSignedUrlCacheFromStorage()
+  tickUploadClock()
+  uploadUnlockTimer = window.setInterval(tickUploadClock, 1000)
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
   window.addEventListener('resize', onResize)
@@ -1362,6 +1384,10 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  if (uploadUnlockTimer && typeof window !== 'undefined') {
+    window.clearInterval(uploadUnlockTimer)
+    uploadUnlockTimer = null
+  }
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
   window.removeEventListener('resize', onResize)
@@ -1457,7 +1483,12 @@ onUnmounted(() => {
 
           <LoadingState v-else-if="galleryLoading && !galleryItems.length" />
 
-          <EmptyState v-else-if="!galleryItems.length" @upload-click="openNativeUploadPicker" />
+          <EmptyState
+            v-else-if="!galleryItems.length"
+            :upload-enabled="uploadsUnlocked"
+            :locked-label="uploadLockedNotice"
+            @upload-click="openNativeUploadPicker"
+          />
 
           <template v-else>
             <p v-if="galleryError" class="error-text">{{ galleryError }}</p>
@@ -1488,14 +1519,14 @@ onUnmounted(() => {
             </div>
 
             <div class="gallery-feed" :class="`mobile-${mobileFeedMode}`">
-              <button class="upload-card" type="button" @click="openNativeUploadPicker">
+              <button class="upload-card" type="button" :disabled="!uploadsUnlocked" @click="openNativeUploadPicker">
                 <span class="upload-card-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
                     <path d="M12 4l5 5h-3v6h-4V9H7l5-5zm-7 13h14v3H5v-3z" fill="currentColor" />
                   </svg>
                 </span>
                 <strong>Upload media</strong>
-                <small>Share photos and videos</small>
+                <small>{{ uploadsUnlocked ? 'Share photos and videos' : uploadLockedNotice }}</small>
               </button>
 
               <MediaCard v-for="item in galleryItems" :key="item.id" :item="item"
@@ -1648,6 +1679,11 @@ onUnmounted(() => {
   text-align: center;
   color: var(--forest);
   cursor: pointer;
+}
+
+.upload-card:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .upload-card strong {

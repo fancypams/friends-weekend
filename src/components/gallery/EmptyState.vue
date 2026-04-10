@@ -1,4 +1,15 @@
 <script setup>
+defineProps({
+  uploadEnabled: {
+    type: Boolean,
+    default: true,
+  },
+  lockedLabel: {
+    type: String,
+    default: '',
+  },
+})
+
 const emit = defineEmits(['uploadClick'])
 </script>
 
@@ -9,7 +20,10 @@ const emit = defineEmits(['uploadClick'])
     <p>
       Upload photos and videos taken during July 31-Aug 4. The shared gallery opens when the trip starts on July 31.
     </p>
-    <button class="btn primary" type="button" @click="emit('uploadClick')">Upload First Media</button>
+    <button class="btn primary" type="button" :disabled="!uploadEnabled" @click="emit('uploadClick')">
+      {{ uploadEnabled ? 'Upload First Media' : 'Uploads Locked' }}
+    </button>
+    <small v-if="!uploadEnabled && lockedLabel" class="locked-note">{{ lockedLabel }}</small>
   </section>
 </template>
 
@@ -61,5 +75,15 @@ p {
 .btn.primary {
   background: var(--forest);
   color: #fff;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.locked-note {
+  color: var(--warm-brown-muted);
+  font-size: 0.78rem;
 }
 </style>
