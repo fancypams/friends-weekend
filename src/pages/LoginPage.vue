@@ -9,6 +9,7 @@ import {
   sendMagicLink,
   setPostLoginRedirect,
 } from '../lib/authAccess'
+import { trackFunnelEvent } from '../lib/telemetryApi'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,6 +27,7 @@ const COOLDOWN_SECONDS = 60
 const RATE_LIMIT_COOLDOWN_SECONDS = 180
 const COOLDOWN_KEY = 'magic-link-cooldown-until'
 const AUTH_CALLBACK_QUERY_KEYS = [
+  'rid',
   'code',
   'error',
   'error_code',
@@ -38,6 +40,7 @@ const AUTH_CALLBACK_QUERY_KEYS = [
   'token_type',
   'type',
 ]
+const TELEMETRY_REQUEST_ID_KEY = 'auth-funnel-request-id'
 
 let cooldownTimer = null
 let authSubscription = null
@@ -97,6 +100,42 @@ function normalizeOrigin(value) {
   } catch {
     return ''
   }
+}
+
+function normalizeRequestId(value) {
+  const raw = String(value || '').trim()
+  return raw.slice(0, 120)
+}
+
+function createRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `rid-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function getRequestIdFromUrl() {
+  const searchParams = new URLSearchParams(window.location.search || '')
+  const hashParams = parseHashParams()
+  return normalizeRequestId(searchParams.get('rid') || hashParams.get('rid') || '')
+}
+
+function getStoredRequestId() {
+  return normalizeRequestId(localStorage.getItem(TELEMETRY_REQUEST_ID_KEY) || '')
+}
+
+function setStoredRequestId(value) {
+  const normalized = normalizeRequestId(value)
+  if (!normalized) return
+  localStorage.setItem(TELEMETRY_REQUEST_ID_KEY, normalized)
+}
+
+function clearStoredRequestId() {
+  localStorage.removeItem(TELEMETRY_REQUEST_ID_KEY)
+}
+
+function getCurrentRequestId() {
+  return getRequestIdFromUrl() || getStoredRequestId()
 }
 
 function resolveMagicLinkRedirectTo() {
@@ -284,7 +323,32 @@ async function routeAfterLogin() {
   const target = queryRedirect !== '/' ? queryRedirect : storageRedirect
 
   clearPostLoginRedirect()
-  await router.replace(target || '/')
+  try {
+    await router.replace(target || '/')
+    const requestId = getCurrentRequestId()
+    if (requestId) {
+      await trackFunnelEvent({
+        journey: 'invite_auth',
+        step: 'post_login_redirect',
+        status: 'success',
+        request_id: requestId,
+      }).catch(() => {})
+    }
+    clearStoredRequestId()
+  } catch (err) {
+    const requestId = getCurrentRequestId()
+    if (requestId) {
+      await trackFunnelEvent({
+        journey: 'invite_auth',
+        step: 'post_login_redirect',
+        status: 'failed',
+        request_id: requestId,
+        error_code: 'redirect_failed',
+        error_message: String(err?.message || err),
+      }).catch(() => {})
+    }
+    throw err
+  }
 }
 
 async function checkSessionAndRedirect() {
@@ -318,7 +382,9 @@ async function submitMagicLink() {
 
   try {
     const redirectTo = resolveMagicLinkRedirectTo()
-    await sendMagicLink(email.value, redirectTo)
+    const requestId = createRequestId()
+    setStoredRequestId(requestId)
+    await sendMagicLink(email.value, redirectTo, requestId)
     startCooldown(COOLDOWN_SECONDS)
     infoMsg.value = `Magic link sent to ${email.value.trim().toLowerCase()}. Open it on this device.`
   } catch (err) {
@@ -338,6 +404,11 @@ async function submitMagicLink() {
 }
 
 onMounted(async () => {
+  const requestIdFromUrl = getRequestIdFromUrl()
+  if (requestIdFromUrl) {
+    setStoredRequestId(requestIdFromUrl)
+  }
+
   syncCooldownFromStorage()
   startCooldownTicker()
 

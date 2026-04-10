@@ -3,6 +3,7 @@ import { assertMethod, badRequest, json, serverError } from '../_shared/http.ts'
 import { requireAuth } from '../_shared/auth.ts'
 import { audit } from '../_shared/audit.ts'
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
+import { writeFunnelEvent } from '../_shared/funnel.ts'
 
 type InviteAndSendPayload = {
   email?: string
@@ -12,6 +13,7 @@ type InviteAndSendPayload = {
   active?: boolean
   redirect_to?: string
   host_name?: string
+  request_id?: string
 }
 
 type InviteDeliveryAttempt = {
@@ -275,6 +277,7 @@ Deno.serve(async (req) => {
   const active = payload.active ?? true
   const hostName = String(payload.host_name ?? Deno.env.get('FRIENDS_WEEKEND_HOST_NAME') ?? '').trim()
   const redirectTo = resolveRedirectTo(payload.redirect_to)
+  const requestId = String(payload.request_id ?? '').trim().slice(0, 120) || crypto.randomUUID()
 
   if (!email || !email.includes('@')) {
     return badRequest('Valid email is required')
@@ -309,6 +312,16 @@ Deno.serve(async (req) => {
     .single()
 
   if (inviteErr || !invite) {
+    await writeFunnelEvent(auth.admin, {
+      journey: 'invite_auth',
+      step: 'invite_sent',
+      status: 'failed',
+      requestId,
+      userId: auth.user.id,
+      inviteEmail: email,
+      errorCode: 'invite_upsert',
+      errorMessage: inviteErr?.message || 'Failed to save invite',
+    })
     await logInviteDeliveryAttempt(auth.admin, {
       ...attemptBase,
       status: 'failed',
@@ -328,6 +341,16 @@ Deno.serve(async (req) => {
   })
 
   if (linkErr) {
+    await writeFunnelEvent(auth.admin, {
+      journey: 'invite_auth',
+      step: 'invite_sent',
+      status: 'failed',
+      requestId,
+      userId: auth.user.id,
+      inviteEmail: email,
+      errorCode: String(linkErr.code || 'magic_link_generation'),
+      errorMessage: linkErr.message || 'Failed to generate magic link',
+    })
     await logInviteDeliveryAttempt(auth.admin, {
       ...attemptBase,
       status: 'failed',
@@ -340,6 +363,16 @@ Deno.serve(async (req) => {
 
   const actionLink = String(linkData?.properties?.action_link || '').trim()
   if (!actionLink) {
+    await writeFunnelEvent(auth.admin, {
+      journey: 'invite_auth',
+      step: 'invite_sent',
+      status: 'failed',
+      requestId,
+      userId: auth.user.id,
+      inviteEmail: email,
+      errorCode: 'magic_link_generation',
+      errorMessage: 'Magic link generation returned no action link',
+    })
     await logInviteDeliveryAttempt(auth.admin, {
       ...attemptBase,
       status: 'failed',
@@ -355,6 +388,16 @@ Deno.serve(async (req) => {
     resendApiKey = requireEnv('RESEND_API_KEY')
     resendFrom = requireEnv('RESEND_FROM')
   } catch (err) {
+    await writeFunnelEvent(auth.admin, {
+      journey: 'invite_auth',
+      step: 'invite_sent',
+      status: 'failed',
+      requestId,
+      userId: auth.user.id,
+      inviteEmail: email,
+      errorCode: 'provider_configuration',
+      errorMessage: String(err),
+    })
     await logInviteDeliveryAttempt(auth.admin, {
       ...attemptBase,
       status: 'failed',
@@ -381,6 +424,19 @@ Deno.serve(async (req) => {
     })
   } catch (err) {
     const enriched = err as Error & { status?: number; code?: string }
+    await writeFunnelEvent(auth.admin, {
+      journey: 'invite_auth',
+      step: 'invite_sent',
+      status: 'failed',
+      requestId,
+      userId: auth.user.id,
+      inviteEmail: email,
+      errorCode: String(enriched?.code || 'provider_send'),
+      errorMessage: String(enriched?.message || err),
+      context: {
+        http_status: Number.isFinite(Number(enriched?.status)) ? Number(enriched.status) : null,
+      },
+    })
     await logInviteDeliveryAttempt(auth.admin, {
       ...attemptBase,
       status: 'failed',
@@ -391,6 +447,20 @@ Deno.serve(async (req) => {
     })
     return serverError('Failed to send invite email', String(err))
   }
+
+  await writeFunnelEvent(auth.admin, {
+    journey: 'invite_auth',
+    step: 'invite_sent',
+    status: 'success',
+    requestId,
+    userId: auth.user.id,
+    inviteEmail: email,
+    context: {
+      resend_email_id: emailId || null,
+      role: invite.role,
+      active: invite.active,
+    },
+  })
 
   await logInviteDeliveryAttempt(auth.admin, {
     ...attemptBase,

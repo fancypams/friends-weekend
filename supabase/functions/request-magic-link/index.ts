@@ -2,11 +2,13 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { handleOptions } from '../_shared/cors.ts'
 import { assertMethod, badRequest, json, serverError } from '../_shared/http.ts'
 import { createAdminClient } from '../_shared/auth.ts'
+import { writeFunnelEvent } from '../_shared/funnel.ts'
 
 type RequestMagicLinkPayload = {
   email?: string
   redirect_to?: string
   source?: string
+  request_id?: string
 }
 
 type MagicLinkAttempt = {
@@ -43,6 +45,23 @@ function normalizeRedirectTo(value: string | undefined) {
 function normalizeSource(value: string | undefined) {
   const trimmed = String(value ?? '').trim()
   return trimmed || null
+}
+
+function normalizeRequestId(value: string | undefined) {
+  const trimmed = String(value ?? '').trim()
+  return trimmed.slice(0, 120) || crypto.randomUUID()
+}
+
+function appendRequestIdToRedirect(redirectTo: string, requestId: string) {
+  const raw = String(redirectTo || '').trim()
+  if (!raw || !requestId) return raw
+  if (raw.includes('rid=')) return raw
+
+  const hashIndex = raw.indexOf('#')
+  const base = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw
+  const hash = hashIndex >= 0 ? raw.slice(hashIndex) : ''
+  const separator = base.includes('?') ? '&' : '?'
+  return `${base}${separator}rid=${encodeURIComponent(requestId)}${hash}`
 }
 
 function requireEnv(name: string) {
@@ -93,7 +112,8 @@ Deno.serve(async (req) => {
   }
 
   const email = normalizeEmail(String(payload.email ?? ''))
-  const redirectTo = normalizeRedirectTo(payload.redirect_to)
+  const requestId = normalizeRequestId(payload.request_id)
+  const redirectTo = appendRequestIdToRedirect(normalizeRedirectTo(payload.redirect_to), requestId)
   const source = normalizeSource(payload.source)
   const userAgent = String(req.headers.get('user-agent') || '').trim() || null
   const requestIp = readRequestIp(req)
@@ -116,6 +136,20 @@ Deno.serve(async (req) => {
       user_agent: userAgent,
       request_ip: requestIp,
     })
+    if (admin) {
+      await writeFunnelEvent(admin, {
+        journey: 'invite_auth',
+        step: 'magic_link_requested',
+        status: 'failed',
+        requestId,
+        email,
+        errorCode: 'validation',
+        errorMessage: 'Valid email is required',
+        context: {
+          source,
+        },
+      })
+    }
     return badRequest('Valid email is required')
   }
 
@@ -140,6 +174,21 @@ Deno.serve(async (req) => {
       user_agent: userAgent,
       request_ip: requestIp,
     })
+    if (admin) {
+      await writeFunnelEvent(admin, {
+        journey: 'invite_auth',
+        step: 'magic_link_requested',
+        status: 'failed',
+        requestId,
+        email,
+        errorCode: 'configuration',
+        errorMessage: String(err),
+        context: {
+          source,
+          redirect_to: redirectTo || null,
+        },
+      })
+    }
     return serverError('Missing magic link configuration', String(err))
   }
 
@@ -153,6 +202,14 @@ Deno.serve(async (req) => {
 
   if (error) {
     const errLike = error as Error & { status?: number; code?: string }
+    const lowered = String(errLike?.message || '').toLowerCase()
+    const isRateLimited = (
+      Number(errLike?.status || 0) === 429
+      || lowered.includes('rate limit')
+      || lowered.includes('for security purposes')
+      || lowered.includes('after')
+    )
+
     await logMagicLinkAttempt(admin, {
       email,
       status: 'failed',
@@ -165,6 +222,22 @@ Deno.serve(async (req) => {
       user_agent: userAgent,
       request_ip: requestIp,
     })
+    if (admin) {
+      await writeFunnelEvent(admin, {
+        journey: 'invite_auth',
+        step: 'magic_link_requested',
+        status: isRateLimited ? 'rate_limited' : 'failed',
+        requestId,
+        email,
+        errorCode: String(errLike.code || ''),
+        errorMessage: errLike.message || 'Failed to request magic link',
+        context: {
+          source,
+          redirect_to: redirectTo || null,
+          http_status: Number.isFinite(Number(errLike.status)) ? Number(errLike.status) : null,
+        },
+      })
+    }
     return serverError('Failed to request magic link', errLike.message)
   }
 
@@ -176,6 +249,19 @@ Deno.serve(async (req) => {
     user_agent: userAgent,
     request_ip: requestIp,
   })
+  if (admin) {
+    await writeFunnelEvent(admin, {
+      journey: 'invite_auth',
+      step: 'magic_link_requested',
+      status: 'success',
+      requestId,
+      email,
+      context: {
+        source,
+        redirect_to: redirectTo || null,
+      },
+    })
+  }
 
-  return json({ sent: true })
+  return json({ sent: true, request_id: requestId })
 })

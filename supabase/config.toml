@@ -68,3 +68,9 @@ verify_jwt = false
 
 [functions.active-users]
 verify_jwt = false
+
+[functions.telemetry-funnel-event]
+verify_jwt = false
+
+[functions.funnel-telemetry]
+verify_jwt = false

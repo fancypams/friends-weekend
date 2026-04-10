@@ -3,12 +3,15 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearPostLoginRedirect, getPostLoginRedirect } from '../lib/authAccess'
 import { hasSupabaseConfig, supabase } from '../lib/supabaseClient'
+import { trackFunnelEvent } from '../lib/telemetryApi'
 
 const route = useRoute()
 const router = useRouter()
 const statusMessage = ref('Signing you in...')
+const TELEMETRY_REQUEST_ID_KEY = 'auth-funnel-request-id'
 
 const AUTH_CALLBACK_QUERY_KEYS = [
+  'rid',
   'code',
   'error',
   'error_code',
@@ -21,6 +24,28 @@ const AUTH_CALLBACK_QUERY_KEYS = [
   'token_type',
   'type',
 ]
+
+function normalizeRequestId(value) {
+  const raw = String(value || '').trim()
+  return raw.slice(0, 120)
+}
+
+function getStoredRequestId() {
+  if (typeof localStorage === 'undefined') return ''
+  return normalizeRequestId(localStorage.getItem(TELEMETRY_REQUEST_ID_KEY) || '')
+}
+
+function setStoredRequestId(value) {
+  if (typeof localStorage === 'undefined') return
+  const normalized = normalizeRequestId(value)
+  if (!normalized) return
+  localStorage.setItem(TELEMETRY_REQUEST_ID_KEY, normalized)
+}
+
+function clearStoredRequestId() {
+  if (typeof localStorage === 'undefined') return
+  localStorage.removeItem(TELEMETRY_REQUEST_ID_KEY)
+}
 
 function normalizeRedirect(value) {
   const candidate = String(value || '').trim()
@@ -63,6 +88,14 @@ function readCallbackParams() {
   const searchParams = new URLSearchParams(window.location.search || '')
   const hashParams = parseHashParams()
 
+  const requestId = String(
+    route.query.rid
+    || searchParams.get('rid')
+    || hashParams.get('rid')
+    || getStoredRequestId()
+    || '',
+  ).trim()
+
   const code = String(
     route.query.code
     || searchParams.get('code')
@@ -95,6 +128,7 @@ function readCallbackParams() {
   ).trim()
 
   return {
+    requestId,
     code,
     accessToken,
     refreshToken,
@@ -102,6 +136,28 @@ function readCallbackParams() {
     errorCode,
     errorDescription,
   }
+}
+
+function classifyCallbackFailure(errorCode, errorMessage) {
+  const code = String(errorCode || '').toLowerCase()
+  const message = String(errorMessage || '').toLowerCase()
+
+  if (
+    code === 'otp_expired'
+    || code === 'jwt_expired'
+    || message.includes('expired')
+    || message.includes('invalid or has expired')
+  ) return 'expired'
+
+  if (
+    code === 'access_denied'
+    || code === 'invalid_jwt'
+    || message.includes('invalid jwt')
+    || message.includes('missing auth callback token')
+    || message.includes('missing auth callback')
+  ) return 'invalid'
+
+  return 'failed'
 }
 
 function clearAuthCallbackQueryFromUrl() {
@@ -151,10 +207,34 @@ function asLoginErrorQuery(details) {
   }
 }
 
-async function routeAfterLogin() {
+async function routeAfterLogin(requestId = '') {
   const target = normalizeRedirect(getPostLoginRedirect())
   clearPostLoginRedirect()
-  await router.replace(target || '/')
+  try {
+    await router.replace(target || '/')
+    if (requestId) {
+      await trackFunnelEvent({
+        journey: 'invite_auth',
+        step: 'post_login_redirect',
+        status: 'success',
+        request_id: requestId,
+      }).catch(() => {})
+    }
+  } catch (err) {
+    if (requestId) {
+      await trackFunnelEvent({
+        journey: 'invite_auth',
+        step: 'post_login_redirect',
+        status: 'failed',
+        request_id: requestId,
+        error_code: 'redirect_failed',
+        error_message: String(err?.message || err),
+      }).catch(() => {})
+    }
+    throw err
+  } finally {
+    clearStoredRequestId()
+  }
 }
 
 onMounted(async () => {
@@ -164,8 +244,29 @@ onMounted(async () => {
   }
 
   const callback = readCallbackParams()
+  const requestId = normalizeRequestId(callback.requestId)
+  if (requestId) {
+    setStoredRequestId(requestId)
+    await trackFunnelEvent({
+      journey: 'invite_auth',
+      step: 'magic_link_clicked',
+      status: 'observed',
+      request_id: requestId,
+    }).catch(() => {})
+  }
 
   if (callback.error || callback.errorCode || callback.errorDescription) {
+    const classifiedStatus = classifyCallbackFailure(callback.errorCode || callback.error, callback.errorDescription)
+    if (requestId) {
+      await trackFunnelEvent({
+        journey: 'invite_auth',
+        step: 'callback_session_exchange',
+        status: classifiedStatus,
+        request_id: requestId,
+        error_code: callback.errorCode || callback.error || 'access_denied',
+        error_message: callback.errorDescription || 'Could not complete sign in from that link.',
+      }).catch(() => {})
+    }
     clearAuthCallbackQueryFromUrl()
     await router.replace({
       path: '/login',
@@ -188,9 +289,29 @@ onMounted(async () => {
       throw new Error('Missing auth callback token/code')
     }
 
+    if (requestId) {
+      await trackFunnelEvent({
+        journey: 'invite_auth',
+        step: 'callback_session_exchange',
+        status: 'success',
+        request_id: requestId,
+      }).catch(() => {})
+    }
+
     clearAuthCallbackQueryFromUrl()
-    await routeAfterLogin()
+    await routeAfterLogin(requestId)
   } catch (err) {
+    const status = classifyCallbackFailure(err?.code, err?.message)
+    if (requestId) {
+      await trackFunnelEvent({
+        journey: 'invite_auth',
+        step: 'callback_session_exchange',
+        status,
+        request_id: requestId,
+        error_code: String(err?.code || 'access_denied'),
+        error_message: String(err?.message || 'Could not complete sign in from that link.'),
+      }).catch(() => {})
+    }
     clearAuthCallbackQueryFromUrl()
     await router.replace({
       path: '/login',

@@ -121,7 +121,7 @@ export async function getAuthState() {
   }
 }
 
-export async function sendMagicLink(email, redirectTo) {
+export async function sendMagicLink(email, redirectTo, requestId = '') {
   if (!hasSupabaseConfig || !supabase) {
     throw new Error('Supabase is not configured')
   }
@@ -141,6 +141,7 @@ export async function sendMagicLink(email, redirectTo) {
       email: normalizedEmail,
       redirect_to: String(redirectTo || '').trim() || null,
       source: 'login-page',
+      request_id: String(requestId || '').trim() || null,
     }),
   })
 
@@ -154,6 +155,8 @@ export async function sendMagicLink(email, redirectTo) {
     error.body = payload
     throw error
   }
+
+  return payload
 }
 
 export async function globalSignOut() {

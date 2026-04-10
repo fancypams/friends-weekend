@@ -13,6 +13,7 @@ import {
 } from '../lib/invitesApi'
 import { FAMILIES } from '../lib/families'
 import { fetchActiveUsersSummary } from '../lib/presenceApi'
+import { fetchFunnelTelemetry } from '../lib/telemetryApi'
 
 const authLoading = ref(true)
 const canManage = ref(false)
@@ -42,6 +43,13 @@ const activeUsersSummary = ref({
 })
 const loadingActiveUsers = ref(false)
 const activeUsersError = ref('')
+const funnelTelemetry = ref({
+  window_minutes: 1440,
+  summary: {},
+  top_failures: [],
+})
+const loadingFunnelTelemetry = ref(false)
+const funnelTelemetryError = ref('')
 const operationProgress = ref({
   active: false,
   label: '',
@@ -104,6 +112,22 @@ const activeWindowLabel = computed(() => {
   const summary = activeUsersSummary.value || {}
   return `Inactivity window: ${summary.inactivity_minutes || 15}m`
 })
+const funnelSummary = computed(() => funnelTelemetry.value?.summary || {})
+const funnelWindowHoursLabel = computed(() => {
+  const minutes = Number(funnelTelemetry.value?.window_minutes || 1440)
+  const hours = Math.round((minutes / 60) * 10) / 10
+  return `${hours}h window`
+})
+const funnelConversionRateLabel = computed(() => {
+  const sent = Number(funnelSummary.value?.magic_link_requested_success || 0)
+  const converted = Number(funnelSummary.value?.callback_session_exchange_success || 0)
+  if (!sent) return '0%'
+  const rate = Math.round((converted / sent) * 1000) / 10
+  return `${rate}%`
+})
+const funnelTopFailures = computed(() => (
+  Array.isArray(funnelTelemetry.value?.top_failures) ? funnelTelemetry.value.top_failures : []
+))
 
 function resetMessages() {
   errorMsg.value = ''
@@ -209,6 +233,25 @@ async function refreshActiveUsersSummary() {
     activeUsersError.value = err?.message || 'Failed to load active users summary.'
   } finally {
     loadingActiveUsers.value = false
+  }
+}
+
+async function refreshFunnelTelemetry() {
+  if (!canManage.value) return
+  if (loadingFunnelTelemetry.value) return
+  loadingFunnelTelemetry.value = true
+  funnelTelemetryError.value = ''
+  try {
+    const data = await fetchFunnelTelemetry({ windowMinutes: 1440 })
+    funnelTelemetry.value = {
+      window_minutes: Number(data?.window_minutes || 1440),
+      summary: data?.summary && typeof data.summary === 'object' ? data.summary : {},
+      top_failures: Array.isArray(data?.top_failures) ? data.top_failures : [],
+    }
+  } catch (err) {
+    funnelTelemetryError.value = err?.message || 'Failed to load funnel telemetry.'
+  } finally {
+    loadingFunnelTelemetry.value = false
   }
 }
 
@@ -632,6 +675,13 @@ function startAttemptsRealtime() {
         void refreshActiveUsersSummary()
       },
     )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'funnel_events' },
+      () => {
+        void refreshFunnelTelemetry()
+      },
+    )
     .subscribe()
 }
 
@@ -649,6 +699,7 @@ onMounted(async () => {
     await refreshDeliveryAttempts()
     await refreshMagicLinkAttempts()
     await refreshActiveUsersSummary()
+    await refreshFunnelTelemetry()
     startAttemptsRealtime()
     return
   }
@@ -661,6 +712,7 @@ onMounted(async () => {
       await refreshDeliveryAttempts()
       await refreshMagicLinkAttempts()
       await refreshActiveUsersSummary()
+      await refreshFunnelTelemetry()
       startAttemptsRealtime()
     }
   } catch (err) {
@@ -705,6 +757,39 @@ onBeforeUnmount(() => {
             </div>
             <p class="muted">{{ activeNowLabel }} · {{ activeWindowLabel }}</p>
             <p v-if="activeUsersError" class="error-text">{{ activeUsersError }}</p>
+          </section>
+          <section class="presence-panel">
+            <div class="list-head">
+              <h3>Funnel telemetry</h3>
+              <button
+                class="btn soft"
+                type="button"
+                :disabled="loadingFunnelTelemetry || saving"
+                @click="refreshFunnelTelemetry"
+              >
+                {{ loadingFunnelTelemetry ? 'Refreshing…' : 'Refresh telemetry' }}
+              </button>
+            </div>
+            <p class="muted">
+              Conversion {{ funnelConversionRateLabel }} · {{ funnelWindowHoursLabel }}
+            </p>
+            <p v-if="funnelTelemetryError" class="error-text">{{ funnelTelemetryError }}</p>
+            <div v-else class="telemetry-grid">
+              <p>Requested: <strong>{{ Number(funnelSummary.magic_link_requested_success || 0) }}</strong></p>
+              <p>Clicked: <strong>{{ Number(funnelSummary.magic_link_clicked_observed || 0) }}</strong></p>
+              <p>Callback success: <strong>{{ Number(funnelSummary.callback_session_exchange_success || 0) }}</strong></p>
+              <p>Callback failed: <strong>{{ Number(funnelSummary.callback_session_exchange_failed || 0) + Number(funnelSummary.callback_session_exchange_expired || 0) + Number(funnelSummary.callback_session_exchange_invalid || 0) }}</strong></p>
+              <p>Rate limited: <strong>{{ Number(funnelSummary.magic_link_requested_rate_limited || 0) }}</strong></p>
+              <p>Invite sent: <strong>{{ Number(funnelSummary.invite_sent_success || 0) }}</strong></p>
+            </div>
+            <div v-if="funnelTopFailures.length" class="telemetry-failures">
+              <p class="muted">Top failures</p>
+              <ul class="batch-fail-list">
+                <li v-for="item in funnelTopFailures" :key="`${item.step}-${item.error_code}-${item.error_message}`">
+                  <strong>{{ item.step }} · {{ item.error_code }}</strong>: {{ item.error_message }} ({{ item.count }})
+                </li>
+              </ul>
+            </div>
           </section>
 
           <form class="invite-form" @submit.prevent="saveAndSend">
@@ -1235,6 +1320,23 @@ select {
   padding-left: 18px;
   color: var(--warm-brown-muted);
   font-size: 0.9rem;
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 14px;
+}
+
+.telemetry-grid p {
+  margin: 0;
+  color: var(--forest);
+  font-size: 0.92rem;
+}
+
+.telemetry-failures {
+  display: grid;
+  gap: 6px;
 }
 
 .progress-text {
