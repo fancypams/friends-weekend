@@ -12,6 +12,7 @@ import {
   upsertInvite,
 } from '../lib/invitesApi'
 import { FAMILIES } from '../lib/families'
+import { fetchActiveUsersSummary } from '../lib/presenceApi'
 
 const authLoading = ref(true)
 const canManage = ref(false)
@@ -32,6 +33,15 @@ const magicLinkAttempts = ref([])
 const loadingMagicLinkAttempts = ref(false)
 const magicLinkAttemptsError = ref('')
 const magicLinkAttemptsLimit = 50
+const activeUsersSummary = ref({
+  active_now_count: 0,
+  total_active_members: 0,
+  inactivity_minutes: 15,
+  cutoff_at: null,
+  items: [],
+})
+const loadingActiveUsers = ref(false)
+const activeUsersError = ref('')
 const operationProgress = ref({
   active: false,
   label: '',
@@ -85,6 +95,14 @@ const canSendAllActive = computed(() => !saving.value && activeInviteRows.value.
 const progressMessage = computed(() => {
   if (!operationProgress.value.active || operationProgress.value.total <= 0) return ''
   return `${operationProgress.value.label}: ${operationProgress.value.completed}/${operationProgress.value.total}`
+})
+const activeNowLabel = computed(() => {
+  const summary = activeUsersSummary.value || {}
+  return `${summary.active_now_count || 0} active now / ${summary.total_active_members || 0} invited`
+})
+const activeWindowLabel = computed(() => {
+  const summary = activeUsersSummary.value || {}
+  return `Inactivity window: ${summary.inactivity_minutes || 15}m`
 })
 
 function resetMessages() {
@@ -170,6 +188,27 @@ async function refreshMagicLinkAttempts() {
     magicLinkAttemptsError.value = err?.message || 'Failed to load magic link attempts.'
   } finally {
     loadingMagicLinkAttempts.value = false
+  }
+}
+
+async function refreshActiveUsersSummary() {
+  if (!canManage.value) return
+  if (loadingActiveUsers.value) return
+  loadingActiveUsers.value = true
+  activeUsersError.value = ''
+  try {
+    const data = await fetchActiveUsersSummary({ inactivityMinutes: 15 })
+    activeUsersSummary.value = {
+      active_now_count: Number(data?.active_now_count || 0),
+      total_active_members: Number(data?.total_active_members || 0),
+      inactivity_minutes: Number(data?.inactivity_minutes || 15),
+      cutoff_at: data?.cutoff_at || null,
+      items: Array.isArray(data?.items) ? data.items : [],
+    }
+  } catch (err) {
+    activeUsersError.value = err?.message || 'Failed to load active users summary.'
+  } finally {
+    loadingActiveUsers.value = false
   }
 }
 
@@ -560,6 +599,7 @@ function startAttemptsRealtime() {
           },
           deliveryAttemptsLimit,
         )
+        void refreshActiveUsersSummary()
       },
     )
     .on(
@@ -574,6 +614,7 @@ function startAttemptsRealtime() {
         const row = payload.new || null
         if (!row) return
         magicLinkAttempts.value = upsertAttemptRows(magicLinkAttempts.value, row, magicLinkAttemptsLimit)
+        void refreshActiveUsersSummary()
       },
     )
     .on(
@@ -582,6 +623,13 @@ function startAttemptsRealtime() {
       (payload) => {
         if (payload.eventType === 'DELETE') return
         applyResendProviderEvent(payload.new || null)
+      },
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'user_presence' },
+      () => {
+        void refreshActiveUsersSummary()
       },
     )
     .subscribe()
@@ -600,6 +648,7 @@ onMounted(async () => {
     await refreshInvites()
     await refreshDeliveryAttempts()
     await refreshMagicLinkAttempts()
+    await refreshActiveUsersSummary()
     startAttemptsRealtime()
     return
   }
@@ -611,6 +660,7 @@ onMounted(async () => {
       await refreshInvites()
       await refreshDeliveryAttempts()
       await refreshMagicLinkAttempts()
+      await refreshActiveUsersSummary()
       startAttemptsRealtime()
     }
   } catch (err) {
@@ -641,6 +691,21 @@ onBeforeUnmount(() => {
           <p class="intro">
             Manage invites in one place. Add one row for an individual invite or multiple rows for batch sending.
           </p>
+          <section class="presence-panel">
+            <div class="list-head">
+              <h3>Live presence</h3>
+              <button
+                class="btn soft"
+                type="button"
+                :disabled="loadingActiveUsers || saving"
+                @click="refreshActiveUsersSummary"
+              >
+                {{ loadingActiveUsers ? 'Refreshing…' : 'Refresh active users' }}
+              </button>
+            </div>
+            <p class="muted">{{ activeNowLabel }} · {{ activeWindowLabel }}</p>
+            <p v-if="activeUsersError" class="error-text">{{ activeUsersError }}</p>
+          </section>
 
           <form class="invite-form" @submit.prevent="saveAndSend">
             <label class="active-check">
