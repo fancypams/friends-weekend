@@ -7,11 +7,15 @@ import PreTripPage from '../pages/PreTripPage.vue'
 import GroceriesPage from '../pages/GroceriesPage.vue'
 import WhaleSightingsPage from '../pages/WhaleSightingsPage.vue'
 import GhostStoriesPage from '../pages/GhostStoriesPage.vue'
-import AdminPage from '../pages/AdminPage.vue'
+import AdminLayout from '../layouts/AdminLayout.vue'
+import AdminOverviewPage from '../pages/admin/AdminOverviewPage.vue'
+import AdminInvitesPage from '../pages/admin/AdminInvitesPage.vue'
+import AdminDeliveryPage from '../pages/admin/AdminDeliveryPage.vue'
+import AdminTelemetryPage from '../pages/admin/AdminTelemetryPage.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import AuthCallbackPage from '../pages/AuthCallbackPage.vue'
 import { bypassAuth, hasSupabaseConfig } from '../lib/supabaseClient'
-import { getCurrentSession, setPostLoginRedirect } from '../lib/authAccess'
+import { getAuthState, getCurrentSession, setPostLoginRedirect } from '../lib/authAccess'
 
 function safeRedirectPath(value) {
   const candidate = String(value || '').trim()
@@ -74,7 +78,17 @@ const router = createRouter({
     { path: '/groceries', component: GroceriesPage, meta: { requiresAuth: true, breadcrumb: 'Groceries' } },
     { path: '/whales', component: WhaleSightingsPage, meta: { requiresAuth: true, breadcrumb: 'Whale Sightings' } },
     { path: '/ghost-stories', component: GhostStoriesPage, meta: { requiresAuth: true, breadcrumb: 'Ghost Stories' } },
-    { path: '/admin', component: AdminPage, meta: { requiresAuth: true, breadcrumb: 'Admin' } },
+    {
+      path: '/admin',
+      component: AdminLayout,
+      meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: 'Admin' },
+      children: [
+        { path: '', component: AdminOverviewPage, meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: 'Overview' } },
+        { path: 'invites', component: AdminInvitesPage, meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: 'Invites' } },
+        { path: 'delivery', component: AdminDeliveryPage, meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: 'Delivery' } },
+        { path: 'telemetry', component: AdminTelemetryPage, meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: 'Telemetry' } },
+      ],
+    },
     { path: '/:pathMatch(.*)*', redirect: '/login' },
   ],
   scrollBehavior: () => ({ top: 0 }),
@@ -99,6 +113,7 @@ router.beforeEach(async (to) => {
   }
 
   const needsAuth = to.matched.some((record) => record.meta.requiresAuth)
+  const needsAdmin = to.matched.some((record) => record.meta.requiresAdmin)
   const isLogin = to.path === '/login'
   const forceLogin = to.query.reauth === '1'
 
@@ -106,6 +121,11 @@ router.beforeEach(async (to) => {
     if (needsAuth) {
       const signedIn = await hasActiveSession()
       if (!signedIn) return redirectToLogin(to.fullPath)
+      if (needsAdmin) {
+        const state = await getAuthState()
+        const canManage = Boolean(state?.signedIn && state?.profile?.role === 'admin' && state?.profile?.active)
+        if (!canManage) return '/'
+      }
 
       return true
     }
@@ -125,6 +145,7 @@ router.beforeEach(async (to) => {
     if (needsAuth) {
       if (await hasActiveSession()) {
         // Avoid forcing users to /login on transient profile/network failures.
+        if (needsAdmin) return '/'
         return true
       }
       return redirectToLogin(to.fullPath)
