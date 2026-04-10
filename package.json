@@ -1,12 +1,13 @@
 {
   "name": "friends-weekend",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "release:tag": "bash scripts/release-tag.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.56.1",
