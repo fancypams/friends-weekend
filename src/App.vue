@@ -68,8 +68,35 @@ onBeforeUnmount(() => {
     document.removeEventListener('visibilitychange', onVisibilityChange)
   }
 })
+
+const appVersion = __APP_VERSION__
+const appGitSha = __APP_GIT_SHA__
+const appBuildLabel = `v${appVersion} (${appGitSha})`
 </script>
 
 <template>
   <router-view />
+  <teleport to="body">
+    <p class="app-build-tag" :title="appBuildLabel">{{ appBuildLabel }}</p>
+  </teleport>
 </template>
+
+<style scoped>
+.app-build-tag {
+  position: fixed;
+  right: 10px;
+  bottom: 8px;
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: rgba(28, 40, 36, 0.62);
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(128, 154, 159, 0.36);
+  border-radius: 999px;
+  padding: 2px 8px;
+  pointer-events: none;
+  z-index: 1301;
+  user-select: none;
+  backdrop-filter: blur(2px);
+}
+</style>
