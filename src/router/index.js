@@ -7,6 +7,7 @@ import PreTripPage from '../pages/PreTripPage.vue'
 import GroceriesPage from '../pages/GroceriesPage.vue'
 import WhaleSightingsPage from '../pages/WhaleSightingsPage.vue'
 import GhostStoriesPage from '../pages/GhostStoriesPage.vue'
+import FlightsPage from '../pages/FlightsPage.vue'
 import AdminLayout from '../layouts/AdminLayout.vue'
 import AdminOverviewPage from '../pages/admin/AdminOverviewPage.vue'
 import AdminInvitesPage from '../pages/admin/AdminInvitesPage.vue'
@@ -78,6 +79,7 @@ const router = createRouter({
     { path: '/groceries', component: GroceriesPage, meta: { requiresAuth: true, breadcrumb: 'Groceries' } },
     { path: '/whales', component: WhaleSightingsPage, meta: { requiresAuth: true, breadcrumb: 'Whale Sightings' } },
     { path: '/ghost-stories', component: GhostStoriesPage, meta: { requiresAuth: true, breadcrumb: 'Ghost Stories' } },
+    { path: '/flights', component: FlightsPage, meta: { requiresAuth: true, breadcrumb: 'Flights' } },
     {
       path: '/admin',
       component: AdminLayout,

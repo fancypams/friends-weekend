@@ -151,6 +151,7 @@ onBeforeUnmount(() => {
     <!-- Dropdown menu -->
     <nav v-if="showHamburger && menuOpen" class="nav-dropdown">
       <router-link to="/" class="nav-item" @click="menuOpen = false">Home</router-link>
+      <router-link to="/flights" class="nav-item" @click="menuOpen = false">Flights</router-link>
       <router-link to="/basics" class="nav-item" @click="menuOpen = false">Basics</router-link>
       <router-link to="/itinerary" class="nav-item" @click="menuOpen = false">Itinerary</router-link>
       <router-link to="/pre-trip" class="nav-item" @click="menuOpen = false">Pre-Trip Prep</router-link>

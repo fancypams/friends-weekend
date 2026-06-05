@@ -8,6 +8,7 @@ const router = useRouter()
 
 const links = [
   { to: '/', label: 'Home' },
+  { to: '/flights', label: 'Flights' },
   { to: '/basics', label: 'Basics' },
   { to: '/itinerary', label: 'Itinerary' },
   { to: '/pre-trip', label: 'Pre-Trip Prep' },

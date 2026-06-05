@@ -2,10 +2,11 @@
 import HeroHeader from '../components/HeroHeader.vue'
 
 const tripCards = [
-  { to: '/basics', title: 'Basics', sub: 'Lodging & Transportation', color: 'var(--deep-sky)' },
-  { to: '/itinerary', title: 'Itinerary', sub: 'Day-by-day schedule', color: 'var(--steel-sky)' },
-  { to: '/pre-trip', title: 'Pre-Trip Prep', sub: 'Movies, music & more', color: 'var(--green-primary)' },
-  { to: '/groceries', title: 'Groceries', sub: 'Add to the shopping list', color: 'var(--terracotta)' },
+  { to: '/flights',   title: 'Flights',       sub: 'Arrivals & departures',       color: '#6DB8CC' },
+  { to: '/basics',    title: 'Basics',         sub: 'Lodging & Transportation',    color: '#7DAAAA' },
+  { to: '/itinerary', title: 'Itinerary',      sub: 'Day-by-day schedule',         color: '#A89955' },
+  { to: '/pre-trip',  title: 'Pre-Trip Prep',  sub: 'Movies, music & more',        color: '#C87838' },
+  { to: '/groceries', title: 'Groceries',      sub: 'Add to the shopping list',    color: '#C8A420' },
 ]
 
 const extrasCards = [
@@ -33,7 +34,7 @@ const extrasCards = [
       <section class="home-section">
         <p class="section-label">Plan</p>
         <h2 class="section-heading">Trip Details</h2>
-        <div class="card-grid four-col">
+        <div class="card-grid five-col">
           <router-link
             v-for="card in tripCards"
             :key="card.to"
@@ -148,6 +149,10 @@ const extrasCards = [
   grid-template-columns: repeat(4, 1fr);
 }
 
+.five-col {
+  grid-template-columns: repeat(5, 1fr);
+}
+
 .two-col {
   grid-template-columns: repeat(2, 1fr);
 }
@@ -242,7 +247,8 @@ const extrasCards = [
   .welcome-section {
    max-width: 100%;
   }
-  .four-col {
+  .four-col,
+  .five-col {
     grid-template-columns: repeat(2, 1fr);
   }
 
