@@ -351,6 +351,58 @@ const submitting = ref(false)
 const submitError = ref(null)
 const successMsg = ref(null)
 
+const arrLooking = ref(false)
+const depLooking = ref(false)
+const arrLookupMsg = ref(null)
+const depLookupMsg = ref(null)
+
+async function lookupFlight(flightNum, lookingRef, dateRef, departRef, arriveRef, msgRef) {
+  const num = flightNum.trim()
+  if (!num) return
+
+  lookingRef.value = true
+  msgRef.value = null
+
+  try {
+    const headers = await getAuthHeaders()
+    const res = await fetch(supabaseFunctionUrl('lookup-flight'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ flightNumber: num }),
+    })
+
+    const body = await res.json()
+
+    if (!res.ok) {
+      msgRef.value = { type: 'error', text: body.error || 'Flight not found' }
+      return
+    }
+
+    const first = body.results?.[0]
+    if (!first) {
+      msgRef.value = { type: 'error', text: 'No schedule found' }
+      return
+    }
+
+    dateRef.value = first.date
+    departRef.value = first.departureTime
+    arriveRef.value = first.arrivalTime
+    msgRef.value = { type: 'success', text: 'Times auto-filled from schedule' }
+  } catch {
+    msgRef.value = { type: 'error', text: 'Could not look up flight' }
+  } finally {
+    lookingRef.value = false
+  }
+}
+
+function lookupArrFlight() {
+  lookupFlight(arrFlight.value, arrLooking, arrDate, arrDepart, arrArrive, arrLookupMsg)
+}
+
+function lookupDepFlight() {
+  lookupFlight(depFlight.value, depLooking, depDate, depDepart, depArrive, depLookupMsg)
+}
+
 function resetForm() {
   formFamily.value = ''
   homeAirport.value = ''
@@ -655,7 +707,7 @@ onMounted(() => {
               <div class="form-row">
                 <div class="form-group">
                   <label class="form-label">Flight number</label>
-                  <input v-model="arrFlight" class="form-input" placeholder="e.g. AA 412" />
+                  <input v-model="arrFlight" class="form-input" placeholder="e.g. AA 412" @blur="lookupArrFlight" />
                 </div>
                 <div class="form-group">
                   <label class="form-label">Date</label>
@@ -671,6 +723,12 @@ onMounted(() => {
                   <label class="form-label">Arrives in SEA</label>
                   <input v-model="arrArrive" type="time" class="form-input" />
                 </div>
+              </div>
+              <div v-if="arrLooking" class="lookup-status lookup-status--loading">
+                <div class="spinner spinner--sm"></div> Looking up schedule…
+              </div>
+              <div v-else-if="arrLookupMsg" class="lookup-status" :class="arrLookupMsg.type === 'success' ? 'lookup-status--success' : 'lookup-status--error'">
+                {{ arrLookupMsg.text }}
               </div>
             </div>
           </div>
@@ -697,7 +755,7 @@ onMounted(() => {
               <div class="form-row">
                 <div class="form-group">
                   <label class="form-label">Flight number</label>
-                  <input v-model="depFlight" class="form-input" placeholder="e.g. AA 413" />
+                  <input v-model="depFlight" class="form-input" placeholder="e.g. AA 413" @blur="lookupDepFlight" />
                 </div>
                 <div class="form-group">
                   <label class="form-label">Date</label>
@@ -713,6 +771,12 @@ onMounted(() => {
                   <label class="form-label">Arrives home</label>
                   <input v-model="depArrive" type="time" class="form-input" />
                 </div>
+              </div>
+              <div v-if="depLooking" class="lookup-status lookup-status--loading">
+                <div class="spinner spinner--sm"></div> Looking up schedule…
+              </div>
+              <div v-else-if="depLookupMsg" class="lookup-status" :class="depLookupMsg.type === 'success' ? 'lookup-status--success' : 'lookup-status--error'">
+                {{ depLookupMsg.text }}
               </div>
             </div>
           </div>
@@ -1205,6 +1269,37 @@ onMounted(() => {
   font-size: 13px;
   font-style: italic;
   letter-spacing: 0;
+}
+
+.lookup-status {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+
+.lookup-status--loading {
+  color: var(--driftwood);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.lookup-status--success {
+  color: #3d8a4e;
+  background: rgba(93, 171, 108, 0.1);
+}
+
+.lookup-status--error {
+  color: var(--red-error, #b94a3c);
+  background: rgba(185, 74, 60, 0.07);
+}
+
+.spinner--sm {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
 }
 
 .form-error {
