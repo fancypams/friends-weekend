@@ -26,8 +26,20 @@ type MagicLinkAttempt = {
   details?: Record<string, unknown>
 }
 
+type InviteRow = {
+  email: string
+  display_name: string | null
+  active: boolean
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase()
+}
+
+function isValidEmail(value: string) {
+  return EMAIL_PATTERN.test(value)
 }
 
 function normalizeRedirectTo(value: string | undefined) {
@@ -80,6 +92,65 @@ function readRequestIp(req: Request) {
   const forwarded = String(req.headers.get('x-forwarded-for') || '').trim()
   if (!forwarded) return null
   return forwarded.split(',')[0]?.trim() || null
+}
+
+function isAlreadyRegisteredAuthError(err: unknown) {
+  const message = String((err as Error | null)?.message || '').toLowerCase()
+  const code = String((err as { code?: string } | null)?.code || '').toLowerCase()
+  return (
+    code === 'email_exists'
+    || code === 'user_already_exists'
+    || message.includes('already been registered')
+    || message.includes('already registered')
+    || message.includes('already exists')
+  )
+}
+
+async function ensureInvitedAuthUser(admin: SupabaseClient, email: string) {
+  const { data: invite, error: inviteErr } = await admin
+    .from('invite_allowlist')
+    .select('email,display_name,active')
+    .eq('email', email)
+    .maybeSingle<InviteRow>()
+
+  if (inviteErr) {
+    return {
+      ok: false as const,
+      failureStage: 'invite_lookup',
+      errorMessage: inviteErr.message || 'Failed to verify invite',
+      errorCode: String(inviteErr.code || ''),
+      httpStatus: null,
+    }
+  }
+
+  if (!invite?.active) {
+    return {
+      ok: false as const,
+      failureStage: 'invite_lookup',
+      errorMessage: 'No active invite found for this email',
+      errorCode: 'invite_not_active',
+      httpStatus: 403,
+    }
+  }
+
+  const { error: createErr } = await admin.auth.admin.createUser({
+    email,
+    email_confirm: true,
+    user_metadata: invite.display_name ? { display_name: invite.display_name } : undefined,
+  })
+
+  if (createErr && !isAlreadyRegisteredAuthError(createErr)) {
+    const errLike = createErr as Error & { status?: number; code?: string }
+    return {
+      ok: false as const,
+      failureStage: 'auth_user_create',
+      errorMessage: errLike.message || 'Failed to create invited user',
+      errorCode: String(errLike.code || ''),
+      httpStatus: Number.isFinite(Number(errLike.status)) ? Number(errLike.status) : null,
+    }
+  }
+
+  return { ok: true as const }
 }
 
 async function logMagicLinkAttempt(admin: SupabaseClient | null, attempt: MagicLinkAttempt) {
@@ -138,7 +209,7 @@ Deno.serve(async (req) => {
     admin = null
   }
 
-  if (!email || !email.includes('@')) {
+  if (!isValidEmail(email)) {
     await logMagicLinkAttempt(admin, {
       email: email || '(missing email)',
       status: 'failed',
@@ -164,6 +235,57 @@ Deno.serve(async (req) => {
       })
     }
     return badRequest('Valid email is required')
+  }
+
+  if (!admin) {
+    const message = 'Missing Supabase service role configuration'
+    await logMagicLinkAttempt(admin, {
+      email,
+      status: 'failed',
+      failure_stage: 'configuration',
+      error_message: message,
+      source,
+      redirect_to: redirectTo || null,
+      user_agent: userAgent,
+      request_ip: requestIp,
+    })
+    return serverError('Missing magic link configuration', message)
+  }
+
+  const inviteProvisioning = await ensureInvitedAuthUser(admin, email)
+  if (!inviteProvisioning.ok) {
+    await logMagicLinkAttempt(admin, {
+      email,
+      status: 'failed',
+      failure_stage: inviteProvisioning.failureStage,
+      error_message: inviteProvisioning.errorMessage,
+      error_code: inviteProvisioning.errorCode,
+      http_status: inviteProvisioning.httpStatus,
+      source,
+      redirect_to: redirectTo || null,
+      user_agent: userAgent,
+      request_ip: requestIp,
+    })
+    await writeFunnelEvent(admin, {
+      journey: 'invite_auth',
+      step: 'magic_link_requested',
+      status: 'failed',
+      requestId,
+      email,
+      errorCode: inviteProvisioning.errorCode,
+      errorMessage: inviteProvisioning.errorMessage,
+      context: {
+        source,
+        redirect_to: redirectTo || null,
+        failure_stage: inviteProvisioning.failureStage,
+        http_status: inviteProvisioning.httpStatus,
+      },
+    })
+
+    if (inviteProvisioning.httpStatus === 403) {
+      return badRequest('No active invite found for this email')
+    }
+    return serverError('Failed to prepare magic link', inviteProvisioning.errorMessage)
   }
 
   let anon: SupabaseClient
