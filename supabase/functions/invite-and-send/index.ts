@@ -35,8 +35,14 @@ type InviteDeliveryAttempt = {
   details?: Record<string, unknown>
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase()
+}
+
+function isValidEmail(value: string) {
+  return EMAIL_PATTERN.test(value)
 }
 
 function normalizeDisplayName(value: string | undefined) {
@@ -279,7 +285,7 @@ Deno.serve(async (req) => {
   const redirectTo = resolveRedirectTo(payload.redirect_to)
   const requestId = String(payload.request_id ?? '').trim().slice(0, 120) || crypto.randomUUID()
 
-  if (!email || !email.includes('@')) {
+  if (!isValidEmail(email)) {
     return badRequest('Valid email is required')
   }
 
