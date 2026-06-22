@@ -77,6 +77,7 @@ const AIRPORTS = {
   BWI: { lat: 39.18, lon: -76.67, city: 'Baltimore' },
   DCA: { lat: 38.85, lon: -77.04, city: 'Washington' },
   IAD: { lat: 38.94, lon: -77.45, city: 'Dulles' },
+  MDT: { lat: 40.19, lon: -76.76, city: 'Harrisburg' },
   PDX: { lat: 45.59, lon: -122.60, city: 'Portland' },
   GEG: { lat: 47.62, lon: -117.53, city: 'Spokane' },
   BOI: { lat: 43.56, lon: -116.22, city: 'Boise' },
@@ -98,13 +99,22 @@ function project(lon, lat) {
   }
 }
 
-function buildArc(homeCode, isArriving) {
-  const home = AIRPORTS[homeCode?.toUpperCase()]
-  if (!home) return null
-  const sea = AIRPORTS.SEA
-  const from = isArriving ? project(home.lon, home.lat) : project(sea.lon, sea.lat)
-  const to = isArriving ? project(sea.lon, sea.lat) : project(home.lon, home.lat)
-  if (!from || !to) return null
+function airportPos(code) {
+  const airport = AIRPORTS[code?.toUpperCase()]
+  if (!airport) {
+    console.warn(`[FlightsPage] No coordinates for airport "${code}" — add it to AIRPORTS to show on map`)
+    return null
+  }
+  return { pos: project(airport.lon, airport.lat), city: airport.city }
+}
+
+function buildArc(originCode, destCode, isArriving) {
+  const origin = airportPos(originCode)
+  const dest = airportPos(destCode)
+  if (!origin?.pos || !dest?.pos) return null
+
+  const { pos: from } = origin
+  const { pos: to } = dest
 
   const mx = (from.x + to.x) / 2
   const my = (from.y + to.y) / 2
@@ -114,9 +124,6 @@ function buildArc(homeCode, isArriving) {
 
   return {
     path: `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} Q ${mx.toFixed(1)} ${cy.toFixed(1)} ${to.x.toFixed(1)} ${to.y.toFixed(1)}`,
-    homePos: isArriving ? from : to,
-    city: home.city,
-    code: homeCode.toUpperCase(),
     isArriving,
   }
 }
@@ -182,17 +189,33 @@ async function loadUsMap() {
   }
 }
 
+// One arc per unique leg (origin → destination), so connecting flights draw as separate segments
 const mapArcs = computed(() => {
   const seen = new Set()
   return flights.value.reduce((arcs, f) => {
     const arriving = f.direction.toLowerCase().includes('arriv')
-    const key = `${f.homeAirport}-${arriving ? 'in' : 'out'}`
+    const key = `${f.origin}-${f.destination}-${arriving ? 'in' : 'out'}`
     if (seen.has(key)) return arcs
     seen.add(key)
-    const arc = buildArc(f.homeAirport, arriving)
+    const arc = buildArc(f.origin, f.destination, arriving)
     if (arc) arcs.push(arc)
     return arcs
   }, [])
+})
+
+// Dots + labels for every non-SEA airport touched by any leg (home airports and connection cities)
+const mapWaypoints = computed(() => {
+  const seen = new Map()
+  flights.value.forEach((f) => {
+    ;[f.origin, f.destination].forEach((rawCode) => {
+      const code = rawCode?.toUpperCase()
+      if (!code || code === 'SEA' || seen.has(code)) return
+      const airport = airportPos(code)
+      if (!airport?.pos) return
+      seen.set(code, { code, city: airport.city, pos: airport.pos })
+    })
+  })
+  return [...seen.values()]
 })
 
 // ── GViz cell parsers ──
@@ -296,26 +319,20 @@ async function loadFlights() {
         const departParsed = departCell?.v != null ? parseGvizCell(departCell.v) : { display: '', sort: '' }
         const arriveParsed = arriveCell?.v != null ? parseGvizCell(arriveCell.v) : { display: '', sort: '' }
         const direction = cellStr(row, 1)
-        const homeAirport = cellStr(row, 2).toUpperCase()
-        const arriving = direction.toLowerCase().includes('arriv')
-        // Older rows predate the Origin/Destination columns — fall back to home<->SEA
-        const origin = cellStr(row, 7).toUpperCase() || (arriving ? homeAirport : 'SEA')
-        const destination = cellStr(row, 8).toUpperCase() || (arriving ? 'SEA' : homeAirport)
         return {
           family: cellStr(row, 0),
           direction,
-          homeAirport,
           flightNumber: cellStr(row, 3),
           date: dateParsed.display,
           dateSort: dateParsed.sort,
           departureTime: departParsed.display,
           departSort: departParsed.sort,
           arrivalTime: arriveParsed.display,
-          origin,
-          destination,
+          origin: cellStr(row, 7).toUpperCase(),
+          destination: cellStr(row, 8).toUpperCase(),
         }
       })
-      .filter((r) => r.family && r.direction && r.homeAirport)
+      .filter((r) => r.family && r.direction && r.origin && r.destination)
   } catch (err) {
     console.error('[FlightsPage] load', err)
     errorMsg.value = err.message || 'Could not load flight data'
@@ -358,8 +375,8 @@ function createLeg(origin = '', destination = '') {
 }
 
 const formFamily = ref('')
-const arrLegs = ref([createLeg('', 'SEA')])
-const depLegs = ref([createLeg('SEA', '')])
+const arrLegs = ref([createLeg()])
+const depLegs = ref([createLeg()])
 
 const submitting = ref(false)
 const submitError = ref(null)
@@ -416,12 +433,11 @@ async function lookupLeg(leg) {
       return
     }
 
-    leg.date = first.date
     leg.depart = first.departureTime
     leg.arrive = first.arrivalTime
     if (first.from) leg.origin = first.from
     if (first.to) leg.destination = first.to
-    leg.lookupMsg = { type: 'success', text: 'Times auto-filled from schedule' }
+    leg.lookupMsg = { type: 'success', text: 'Times auto-filled — please enter the date yourself' }
   } catch {
     leg.lookupMsg = { type: 'error', text: 'Could not look up flight' }
   } finally {
@@ -431,8 +447,8 @@ async function lookupLeg(leg) {
 
 function resetForm() {
   formFamily.value = ''
-  arrLegs.value = [createLeg('', 'SEA')]
-  depLegs.value = [createLeg('SEA', '')]
+  arrLegs.value = [createLeg()]
+  depLegs.value = [createLeg()]
 }
 
 function validateLegs(legs, label) {
@@ -573,21 +589,14 @@ onMounted(() => {
               :class="arc.isArriving ? 'arc-arriving' : 'arc-departing'"
             />
 
-            <!-- Home airport dots + labels -->
-            <g v-for="(arc, i) in mapArcs" :key="`dot-${i}`">
-              <circle
-                v-if="arc.homePos"
-                :cx="arc.homePos.x"
-                :cy="arc.homePos.y"
-                r="4.5"
-                :fill="arc.isArriving ? '#5dab6c' : '#c0614a'"
-              />
+            <!-- Waypoint dots + labels (home airports and connection cities) -->
+            <g v-for="wp in mapWaypoints" :key="wp.code">
+              <circle :cx="wp.pos.x" :cy="wp.pos.y" r="4.5" fill="#e8c468" />
               <text
-                v-if="arc.homePos"
-                :x="arc.homePos.x + 9"
-                :y="arc.homePos.y + 4"
+                :x="wp.pos.x + 9"
+                :y="wp.pos.y + 4"
                 class="map-label"
-              >{{ arc.city }}</text>
+              >{{ wp.city }}</text>
             </g>
 
             <!-- SEA hub -->

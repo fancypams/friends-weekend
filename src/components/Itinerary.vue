@@ -149,9 +149,10 @@ onMounted(async () => {
         flightRows.forEach((row) => {
           const family = flightCellStr(row, 0)
           const direction = flightCellStr(row, 1)
-          const homeAirport = flightCellStr(row, 2).toUpperCase()
           const flightNumber = flightCellStr(row, 3)
-          if (!family || !direction || !homeAirport) return
+          const origin = flightCellStr(row, 7).toUpperCase()
+          const destination = flightCellStr(row, 8).toUpperCase()
+          if (!family || !direction || !origin || !destination) return
 
           const dateCell = row?.c?.[4]
           const departCell = row?.c?.[5]
@@ -166,9 +167,6 @@ onMounted(async () => {
           // Use arrival time for arriving flights (when they land), depart time for departing
           const timeCell = isArriving ? arriveCell : departCell
           const timeParsed = timeCell?.v != null ? parseGvizCell(timeCell.v) : { display: '', sort: '00:00' }
-          // Older rows predate the Origin/Destination columns — fall back to home<->SEA
-          const origin = flightCellStr(row, 7).toUpperCase() || (isArriving ? homeAirport : 'SEA')
-          const destination = flightCellStr(row, 8).toUpperCase() || (isArriving ? 'SEA' : homeAirport)
           const route = `${origin} → ${destination}`
 
           const flightItem = {
@@ -177,7 +175,6 @@ onMounted(async () => {
             timeSort: timeToMinutes(timeParsed.display),
             family,
             direction: isArriving ? 'Arriving' : 'Departing',
-            homeAirport,
             route,
             flightNumber,
           }
