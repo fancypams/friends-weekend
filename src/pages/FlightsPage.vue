@@ -260,7 +260,7 @@ function isArriving(f) {
 }
 
 function getRoute(f) {
-  return isArriving(f) ? `${f.homeAirport} → SEA` : `SEA → ${f.homeAirport}`
+  return `${f.origin} → ${f.destination}`
 }
 
 function formatDateLong(dateSort) {
@@ -295,16 +295,24 @@ async function loadFlights() {
         const dateParsed = dateCell?.v != null ? parseGvizCell(dateCell.v) : { display: '', sort: '' }
         const departParsed = departCell?.v != null ? parseGvizCell(departCell.v) : { display: '', sort: '' }
         const arriveParsed = arriveCell?.v != null ? parseGvizCell(arriveCell.v) : { display: '', sort: '' }
+        const direction = cellStr(row, 1)
+        const homeAirport = cellStr(row, 2).toUpperCase()
+        const arriving = direction.toLowerCase().includes('arriv')
+        // Older rows predate the Origin/Destination columns — fall back to home<->SEA
+        const origin = cellStr(row, 7).toUpperCase() || (arriving ? homeAirport : 'SEA')
+        const destination = cellStr(row, 8).toUpperCase() || (arriving ? 'SEA' : homeAirport)
         return {
           family: cellStr(row, 0),
-          direction: cellStr(row, 1),
-          homeAirport: cellStr(row, 2).toUpperCase(),
+          direction,
+          homeAirport,
           flightNumber: cellStr(row, 3),
           date: dateParsed.display,
           dateSort: dateParsed.sort,
           departureTime: departParsed.display,
           departSort: departParsed.sort,
           arrivalTime: arriveParsed.display,
+          origin,
+          destination,
         }
       })
       .filter((r) => r.family && r.direction && r.homeAirport)
@@ -336,32 +344,56 @@ async function getAuthHeaders() {
 // ── Form ──
 const FAMILIES = ['Ekanger', 'Dzambo', 'Schambach', 'Montañez', 'Habibi', 'Donaldson']
 
+function createLeg(origin = '', destination = '') {
+  return {
+    origin,
+    destination,
+    flight: '',
+    date: '',
+    depart: '',
+    arrive: '',
+    looking: false,
+    lookupMsg: null,
+  }
+}
+
 const formFamily = ref('')
-const homeAirport = ref('')
-const arrFlight = ref('')
-const arrDate = ref('')
-const arrDepart = ref('')
-const arrArrive = ref('')
-const depFlight = ref('')
-const depDate = ref('')
-const depDepart = ref('')
-const depArrive = ref('')
+const arrLegs = ref([createLeg('', 'SEA')])
+const depLegs = ref([createLeg('SEA', '')])
 
 const submitting = ref(false)
 const submitError = ref(null)
 const successMsg = ref(null)
 
-const arrLooking = ref(false)
-const depLooking = ref(false)
-const arrLookupMsg = ref(null)
-const depLookupMsg = ref(null)
+// The family's home airport, used for the arc map — derived from the outer legs
+const homeAirportCode = computed(() => {
+  const arrOrigin = arrLegs.value[0]?.origin?.trim().toUpperCase()
+  const depDestination = depLegs.value[depLegs.value.length - 1]?.destination?.trim().toUpperCase()
+  return arrOrigin || depDestination || ''
+})
 
-async function lookupFlight(flightNum, lookingRef, dateRef, departRef, arriveRef, msgRef) {
-  const num = flightNum.trim()
+function addArrLeg() {
+  arrLegs.value.push(createLeg())
+}
+
+function removeArrLeg(index) {
+  if (arrLegs.value.length > 1) arrLegs.value.splice(index, 1)
+}
+
+function addDepLeg() {
+  depLegs.value.push(createLeg())
+}
+
+function removeDepLeg(index) {
+  if (depLegs.value.length > 1) depLegs.value.splice(index, 1)
+}
+
+async function lookupLeg(leg) {
+  const num = leg.flight.trim()
   if (!num) return
 
-  lookingRef.value = true
-  msgRef.value = null
+  leg.looking = true
+  leg.lookupMsg = null
 
   try {
     const headers = await getAuthHeaders()
@@ -374,46 +406,45 @@ async function lookupFlight(flightNum, lookingRef, dateRef, departRef, arriveRef
     const body = await res.json()
 
     if (!res.ok) {
-      msgRef.value = { type: 'error', text: body.error || 'Flight not found' }
+      leg.lookupMsg = { type: 'error', text: body.error || 'Flight not found' }
       return
     }
 
     const first = body.results?.[0]
     if (!first) {
-      msgRef.value = { type: 'error', text: 'No schedule found' }
+      leg.lookupMsg = { type: 'error', text: 'No schedule found' }
       return
     }
 
-    dateRef.value = first.date
-    departRef.value = first.departureTime
-    arriveRef.value = first.arrivalTime
-    msgRef.value = { type: 'success', text: 'Times auto-filled from schedule' }
+    leg.date = first.date
+    leg.depart = first.departureTime
+    leg.arrive = first.arrivalTime
+    if (first.from) leg.origin = first.from
+    if (first.to) leg.destination = first.to
+    leg.lookupMsg = { type: 'success', text: 'Times auto-filled from schedule' }
   } catch {
-    msgRef.value = { type: 'error', text: 'Could not look up flight' }
+    leg.lookupMsg = { type: 'error', text: 'Could not look up flight' }
   } finally {
-    lookingRef.value = false
+    leg.looking = false
   }
-}
-
-function lookupArrFlight() {
-  lookupFlight(arrFlight.value, arrLooking, arrDate, arrDepart, arrArrive, arrLookupMsg)
-}
-
-function lookupDepFlight() {
-  lookupFlight(depFlight.value, depLooking, depDate, depDepart, depArrive, depLookupMsg)
 }
 
 function resetForm() {
   formFamily.value = ''
-  homeAirport.value = ''
-  arrFlight.value = ''
-  arrDate.value = ''
-  arrDepart.value = ''
-  arrArrive.value = ''
-  depFlight.value = ''
-  depDate.value = ''
-  depDepart.value = ''
-  depArrive.value = ''
+  arrLegs.value = [createLeg('', 'SEA')]
+  depLegs.value = [createLeg('SEA', '')]
+}
+
+function validateLegs(legs, label) {
+  for (const leg of legs) {
+    if (!leg.origin.trim()) return `${label} origin is required`
+    if (!leg.destination.trim()) return `${label} destination is required`
+    if (!leg.flight.trim()) return `${label} flight number is required`
+    if (!leg.date) return `${label} date is required`
+    if (!leg.depart) return `${label} departure time is required`
+    if (!leg.arrive) return `${label} arrival time is required`
+  }
+  return null
 }
 
 async function handleSubmit() {
@@ -421,16 +452,12 @@ async function handleSubmit() {
   successMsg.value = null
 
   if (!formFamily.value) { submitError.value = 'Please select your family'; return }
-  const airport = homeAirport.value.trim().toUpperCase()
-  if (!airport) { submitError.value = 'Home airport is required'; return }
-  if (!arrFlight.value.trim()) { submitError.value = 'Arriving flight number is required'; return }
-  if (!arrDate.value) { submitError.value = 'Arriving date is required'; return }
-  if (!arrDepart.value) { submitError.value = 'Arriving departure time is required'; return }
-  if (!arrArrive.value) { submitError.value = 'Arriving arrival time is required'; return }
-  if (!depFlight.value.trim()) { submitError.value = 'Departing flight number is required'; return }
-  if (!depDate.value) { submitError.value = 'Departing date is required'; return }
-  if (!depDepart.value) { submitError.value = 'Departing departure time is required'; return }
-  if (!depArrive.value) { submitError.value = 'Departing arrival time is required'; return }
+  if (!homeAirportCode.value) { submitError.value = 'Home airport is required'; return }
+
+  const arrError = validateLegs(arrLegs.value, 'Arriving flight')
+  if (arrError) { submitError.value = arrError; return }
+  const depError = validateLegs(depLegs.value, 'Departing flight')
+  if (depError) { submitError.value = depError; return }
 
   submitting.value = true
 
@@ -441,19 +468,23 @@ async function handleSubmit() {
       headers,
       body: JSON.stringify({
         family: formFamily.value,
-        homeAirport: airport,
-        arriving: {
-          flight: arrFlight.value.trim().toUpperCase(),
-          date: arrDate.value,
-          departTime: arrDepart.value,
-          arriveTime: arrArrive.value,
-        },
-        departing: {
-          flight: depFlight.value.trim().toUpperCase(),
-          date: depDate.value,
-          departTime: depDepart.value,
-          arriveTime: depArrive.value,
-        },
+        homeAirport: homeAirportCode.value,
+        arriving: arrLegs.value.map((leg) => ({
+          flight: leg.flight.trim().toUpperCase(),
+          date: leg.date,
+          departTime: leg.depart,
+          arriveTime: leg.arrive,
+          origin: leg.origin.trim().toUpperCase(),
+          destination: leg.destination.trim().toUpperCase(),
+        })),
+        departing: depLegs.value.map((leg) => ({
+          flight: leg.flight.trim().toUpperCase(),
+          date: leg.date,
+          departTime: leg.depart,
+          arriveTime: leg.arrive,
+          origin: leg.origin.trim().toUpperCase(),
+          destination: leg.destination.trim().toUpperCase(),
+        })),
       }),
     })
 
@@ -688,48 +719,61 @@ onMounted(() => {
               Arriving in Seattle
             </div>
             <div class="flight-section-body">
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Home airport</label>
-                  <input
-                    v-model="homeAirport"
-                    class="form-input"
-                    placeholder="e.g. BOS"
-                    maxlength="4"
-                    @input="homeAirport = homeAirport.toUpperCase()"
-                  />
+              <div v-for="(leg, i) in arrLegs" :key="i" class="leg-block">
+                <div class="leg-block-header" v-if="arrLegs.length > 1">
+                  <span class="leg-label">{{ i === 0 ? 'Flight 1' : `Connection ${i + 1}` }}</span>
+                  <button type="button" class="btn-remove-leg" @click="removeArrLeg(i)">Remove</button>
                 </div>
-                <div class="form-group">
-                  <label class="form-label">Destination</label>
-                  <div class="form-static">SEA</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">Origin</label>
+                    <input
+                      v-model="leg.origin"
+                      class="form-input"
+                      placeholder="e.g. BOS"
+                      maxlength="4"
+                      @input="leg.origin = leg.origin.toUpperCase()"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Destination</label>
+                    <input
+                      v-model="leg.destination"
+                      class="form-input"
+                      placeholder="e.g. SEA"
+                      maxlength="4"
+                      @input="leg.destination = leg.destination.toUpperCase()"
+                    />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">Flight number</label>
+                    <input v-model="leg.flight" class="form-input" placeholder="e.g. AA 412" @blur="lookupLeg(leg)" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Date</label>
+                    <input v-model="leg.date" type="date" class="form-input" />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">Departs</label>
+                    <input v-model="leg.depart" type="time" class="form-input" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Arrives</label>
+                    <input v-model="leg.arrive" type="time" class="form-input" />
+                  </div>
+                </div>
+                <div v-if="leg.looking" class="lookup-status lookup-status--loading">
+                  <div class="spinner spinner--sm"></div> Looking up schedule…
+                </div>
+                <div v-else-if="leg.lookupMsg" class="lookup-status" :class="leg.lookupMsg.type === 'success' ? 'lookup-status--success' : 'lookup-status--error'">
+                  {{ leg.lookupMsg.text }}
                 </div>
               </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Flight number</label>
-                  <input v-model="arrFlight" class="form-input" placeholder="e.g. AA 412" @blur="lookupArrFlight" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Date</label>
-                  <input v-model="arrDate" type="date" class="form-input" />
-                </div>
-              </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Departs</label>
-                  <input v-model="arrDepart" type="time" class="form-input" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Arrives in SEA</label>
-                  <input v-model="arrArrive" type="time" class="form-input" />
-                </div>
-              </div>
-              <div v-if="arrLooking" class="lookup-status lookup-status--loading">
-                <div class="spinner spinner--sm"></div> Looking up schedule…
-              </div>
-              <div v-else-if="arrLookupMsg" class="lookup-status" :class="arrLookupMsg.type === 'success' ? 'lookup-status--success' : 'lookup-status--error'">
-                {{ arrLookupMsg.text }}
-              </div>
+              <button type="button" class="btn-add-leg" @click="addArrLeg">+ Add connecting flight</button>
             </div>
           </div>
 
@@ -740,44 +784,61 @@ onMounted(() => {
               Departing Seattle
             </div>
             <div class="flight-section-body">
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Origin</label>
-                  <div class="form-static">SEA</div>
+              <div v-for="(leg, i) in depLegs" :key="i" class="leg-block">
+                <div class="leg-block-header" v-if="depLegs.length > 1">
+                  <span class="leg-label">{{ i === 0 ? 'Flight 1' : `Connection ${i + 1}` }}</span>
+                  <button type="button" class="btn-remove-leg" @click="removeDepLeg(i)">Remove</button>
                 </div>
-                <div class="form-group">
-                  <label class="form-label">Home airport</label>
-                  <div class="form-static" :class="{ 'form-static--placeholder': !homeAirport }">
-                    {{ homeAirport || 'Auto-filled above' }}
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">Origin</label>
+                    <input
+                      v-model="leg.origin"
+                      class="form-input"
+                      placeholder="e.g. SEA"
+                      maxlength="4"
+                      @input="leg.origin = leg.origin.toUpperCase()"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Destination</label>
+                    <input
+                      v-model="leg.destination"
+                      class="form-input"
+                      placeholder="e.g. BOS"
+                      maxlength="4"
+                      @input="leg.destination = leg.destination.toUpperCase()"
+                    />
                   </div>
                 </div>
-              </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Flight number</label>
-                  <input v-model="depFlight" class="form-input" placeholder="e.g. AA 413" @blur="lookupDepFlight" />
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">Flight number</label>
+                    <input v-model="leg.flight" class="form-input" placeholder="e.g. AA 413" @blur="lookupLeg(leg)" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Date</label>
+                    <input v-model="leg.date" type="date" class="form-input" />
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label class="form-label">Date</label>
-                  <input v-model="depDate" type="date" class="form-input" />
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">Departs</label>
+                    <input v-model="leg.depart" type="time" class="form-input" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Arrives</label>
+                    <input v-model="leg.arrive" type="time" class="form-input" />
+                  </div>
+                </div>
+                <div v-if="leg.looking" class="lookup-status lookup-status--loading">
+                  <div class="spinner spinner--sm"></div> Looking up schedule…
+                </div>
+                <div v-else-if="leg.lookupMsg" class="lookup-status" :class="leg.lookupMsg.type === 'success' ? 'lookup-status--success' : 'lookup-status--error'">
+                  {{ leg.lookupMsg.text }}
                 </div>
               </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Departs SEA</label>
-                  <input v-model="depDepart" type="time" class="form-input" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Arrives home</label>
-                  <input v-model="depArrive" type="time" class="form-input" />
-                </div>
-              </div>
-              <div v-if="depLooking" class="lookup-status lookup-status--loading">
-                <div class="spinner spinner--sm"></div> Looking up schedule…
-              </div>
-              <div v-else-if="depLookupMsg" class="lookup-status" :class="depLookupMsg.type === 'success' ? 'lookup-status--success' : 'lookup-status--error'">
-                {{ depLookupMsg.text }}
-              </div>
+              <button type="button" class="btn-add-leg" @click="addDepLeg">+ Add connecting flight</button>
             </div>
           </div>
           </div> <!-- end flight-sections-row -->
@@ -1205,6 +1266,65 @@ onMounted(() => {
   gap: 14px;
 }
 
+.leg-block {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--parchment, #e0d8cc);
+}
+
+.leg-block:last-of-type {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.leg-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.leg-label {
+  font-family: var(--font-sign);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sky-label);
+}
+
+.btn-remove-leg {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--red-error, #b94a3c);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.btn-add-leg {
+  font-family: var(--font-sign);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--forest);
+  background: none;
+  border: 1px dashed var(--driftwood);
+  border-radius: 4px;
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  align-self: flex-start;
+}
+
+.btn-add-leg:hover {
+  border-color: var(--forest);
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -1252,27 +1372,6 @@ onMounted(() => {
 .form-input[type="date"],
 .form-input[type="time"] {
   color-scheme: light;
-}
-
-.form-static {
-  font-family: var(--font-sign);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--forest);
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid var(--parchment, #e0d8cc);
-  border-radius: 4px;
-  padding: 9px 12px;
-}
-
-.form-static--placeholder {
-  color: var(--driftwood);
-  font-weight: 400;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-style: italic;
-  letter-spacing: 0;
 }
 
 .lookup-status {

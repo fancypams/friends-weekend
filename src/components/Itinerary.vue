@@ -166,7 +166,10 @@ onMounted(async () => {
           // Use arrival time for arriving flights (when they land), depart time for departing
           const timeCell = isArriving ? arriveCell : departCell
           const timeParsed = timeCell?.v != null ? parseGvizCell(timeCell.v) : { display: '', sort: '00:00' }
-          const route = isArriving ? `${homeAirport} → SEA` : `SEA → ${homeAirport}`
+          // Older rows predate the Origin/Destination columns — fall back to home<->SEA
+          const origin = flightCellStr(row, 7).toUpperCase() || (isArriving ? homeAirport : 'SEA')
+          const destination = flightCellStr(row, 8).toUpperCase() || (isArriving ? 'SEA' : homeAirport)
+          const route = `${origin} → ${destination}`
 
           const flightItem = {
             type: 'flight',

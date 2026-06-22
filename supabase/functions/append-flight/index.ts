@@ -75,7 +75,7 @@ async function getGoogleAccessToken(): Promise<string> {
 }
 
 async function appendRows(accessToken: string, rows: string[][]) {
-  const range = encodeURIComponent(`${SHEET_NAME}!A:G`)
+  const range = encodeURIComponent(`${SHEET_NAME}!A:I`)
   const url =
     `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${range}:append` +
     `?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`
@@ -107,11 +107,20 @@ Deno.serve(async (req) => {
   const auth = await requireAuth(req, { requireActive: true })
   if (!auth.ok) return auth.response
 
+  type RawLeg = {
+    flight?: unknown
+    date?: unknown
+    departTime?: unknown
+    arriveTime?: unknown
+    origin?: unknown
+    destination?: unknown
+  }
+
   let body: {
     family?: unknown
     homeAirport?: unknown
-    arriving?: { flight?: unknown; date?: unknown; departTime?: unknown; arriveTime?: unknown }
-    departing?: { flight?: unknown; date?: unknown; departTime?: unknown; arriveTime?: unknown }
+    arriving?: unknown
+    departing?: unknown
   }
 
   try {
@@ -126,25 +135,38 @@ Deno.serve(async (req) => {
   if (!VALID_FAMILIES.includes(family)) return badRequest('Invalid family selection')
   if (!homeAirport || homeAirport.length > 4) return badRequest('Invalid home airport code')
 
-  const arr = body.arriving ?? {}
-  const dep = body.departing ?? {}
+  function normalizeLeg(raw: unknown) {
+    const leg = (raw ?? {}) as RawLeg
+    const flight = String(leg.flight ?? '').trim()
+    const date = String(leg.date ?? '').trim()
+    const departTime = String(leg.departTime ?? '').trim()
+    const arriveTime = String(leg.arriveTime ?? '').trim()
+    const origin = String(leg.origin ?? '').trim().toUpperCase()
+    const destination = String(leg.destination ?? '').trim().toUpperCase()
+    if (!flight || !date || !departTime || !arriveTime || !origin || !destination) return null
+    if (origin.length > 4 || destination.length > 4) return null
+    return { flight, date, departTime, arriveTime, origin, destination }
+  }
 
-  const arrFlight = String(arr.flight ?? '').trim()
-  const arrDate = String(arr.date ?? '').trim()
-  const arrDepart = String(arr.departTime ?? '').trim()
-  const arrArrive = String(arr.arriveTime ?? '').trim()
+  const arrivingLegsRaw = Array.isArray(body.arriving) ? body.arriving : []
+  const departingLegsRaw = Array.isArray(body.departing) ? body.departing : []
 
-  const depFlight = String(dep.flight ?? '').trim()
-  const depDate = String(dep.date ?? '').trim()
-  const depDepart = String(dep.departTime ?? '').trim()
-  const depArrive = String(dep.arriveTime ?? '').trim()
+  if (arrivingLegsRaw.length === 0) return badRequest('At least one arriving flight leg is required')
+  if (departingLegsRaw.length === 0) return badRequest('At least one departing flight leg is required')
 
-  if (!arrFlight || !arrDate || !arrDepart || !arrArrive) return badRequest('Arriving flight details incomplete')
-  if (!depFlight || !depDate || !depDepart || !depArrive) return badRequest('Departing flight details incomplete')
+  const arrivingLegs = arrivingLegsRaw.map(normalizeLeg)
+  const departingLegs = departingLegsRaw.map(normalizeLeg)
+
+  if (arrivingLegs.some((leg) => leg === null)) return badRequest('Arriving flight details incomplete')
+  if (departingLegs.some((leg) => leg === null)) return badRequest('Departing flight details incomplete')
 
   const rows = [
-    [family, 'Arriving', homeAirport, arrFlight, arrDate, arrDepart, arrArrive],
-    [family, 'Departing', homeAirport, depFlight, depDate, depDepart, depArrive],
+    ...(arrivingLegs as NonNullable<ReturnType<typeof normalizeLeg>>[]).map((leg) => [
+      family, 'Arriving', homeAirport, leg.flight, leg.date, leg.departTime, leg.arriveTime, leg.origin, leg.destination,
+    ]),
+    ...(departingLegs as NonNullable<ReturnType<typeof normalizeLeg>>[]).map((leg) => [
+      family, 'Departing', homeAirport, leg.flight, leg.date, leg.departTime, leg.arriveTime, leg.origin, leg.destination,
+    ]),
   ]
 
   try {
