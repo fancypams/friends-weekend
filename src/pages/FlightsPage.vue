@@ -375,6 +375,7 @@ function createLeg(origin = '', destination = '') {
 }
 
 const formFamily = ref('')
+const tripType = ref('roundtrip') // 'roundtrip' | 'arriving' | 'departing'
 const arrLegs = ref([createLeg()])
 const depLegs = ref([createLeg()])
 
@@ -384,9 +385,15 @@ const successMsg = ref(null)
 
 // The family's home airport, used for the arc map — derived from the outer legs
 const homeAirportCode = computed(() => {
-  const arrOrigin = arrLegs.value[0]?.origin?.trim().toUpperCase()
-  const depDestination = depLegs.value[depLegs.value.length - 1]?.destination?.trim().toUpperCase()
-  return arrOrigin || depDestination || ''
+  if (tripType.value !== 'departing') {
+    const arrOrigin = arrLegs.value[0]?.origin?.trim().toUpperCase()
+    if (arrOrigin) return arrOrigin
+  }
+  if (tripType.value !== 'arriving') {
+    const depDestination = depLegs.value[depLegs.value.length - 1]?.destination?.trim().toUpperCase()
+    if (depDestination) return depDestination
+  }
+  return ''
 })
 
 function addArrLeg() {
@@ -447,6 +454,7 @@ async function lookupLeg(leg) {
 
 function resetForm() {
   formFamily.value = ''
+  tripType.value = 'roundtrip'
   arrLegs.value = [createLeg()]
   depLegs.value = [createLeg()]
 }
@@ -470,10 +478,14 @@ async function handleSubmit() {
   if (!formFamily.value) { submitError.value = 'Please select your family'; return }
   if (!homeAirportCode.value) { submitError.value = 'Home airport is required'; return }
 
-  const arrError = validateLegs(arrLegs.value, 'Arriving flight')
-  if (arrError) { submitError.value = arrError; return }
-  const depError = validateLegs(depLegs.value, 'Departing flight')
-  if (depError) { submitError.value = depError; return }
+  if (tripType.value !== 'departing') {
+    const arrError = validateLegs(arrLegs.value, 'Arriving flight')
+    if (arrError) { submitError.value = arrError; return }
+  }
+  if (tripType.value !== 'arriving') {
+    const depError = validateLegs(depLegs.value, 'Departing flight')
+    if (depError) { submitError.value = depError; return }
+  }
 
   submitting.value = true
 
@@ -485,22 +497,22 @@ async function handleSubmit() {
       body: JSON.stringify({
         family: formFamily.value,
         homeAirport: homeAirportCode.value,
-        arriving: arrLegs.value.map((leg) => ({
+        arriving: tripType.value !== 'departing' ? arrLegs.value.map((leg) => ({
           flight: leg.flight.trim().toUpperCase(),
           date: leg.date,
           departTime: leg.depart,
           arriveTime: leg.arrive,
           origin: leg.origin.trim().toUpperCase(),
           destination: leg.destination.trim().toUpperCase(),
-        })),
-        departing: depLegs.value.map((leg) => ({
+        })) : [],
+        departing: tripType.value !== 'arriving' ? depLegs.value.map((leg) => ({
           flight: leg.flight.trim().toUpperCase(),
           date: leg.date,
           departTime: leg.depart,
           arriveTime: leg.arrive,
           origin: leg.origin.trim().toUpperCase(),
           destination: leg.destination.trim().toUpperCase(),
-        })),
+        })) : [],
       }),
     })
 
@@ -719,10 +731,19 @@ onMounted(() => {
             </select>
           </div>
 
+          <div class="form-group">
+            <label class="form-label">Trip type</label>
+            <div class="trip-type-group" role="group" aria-label="Trip type">
+              <button type="button" :class="['trip-type-btn', { active: tripType === 'roundtrip' }]" @click="tripType = 'roundtrip'">Round trip</button>
+              <button type="button" :class="['trip-type-btn', { active: tripType === 'arriving' }]" @click="tripType = 'arriving'">Arriving only</button>
+              <button type="button" :class="['trip-type-btn', { active: tripType === 'departing' }]" @click="tripType = 'departing'">Departing only</button>
+            </div>
+          </div>
+
           <!-- Arriving + Departing side by side on desktop -->
-          <div class="flight-sections-row">
+          <div :class="['flight-sections-row', { 'flight-sections-row--single': tripType !== 'roundtrip' }]">
           <!-- Arriving section -->
-          <div class="flight-section flight-section--arriving">
+          <div v-if="tripType !== 'departing'" class="flight-section flight-section--arriving">
             <div class="flight-section-header">
               <span class="dir-icon">↓</span>
               Arriving in Seattle
@@ -787,7 +808,7 @@ onMounted(() => {
           </div>
 
           <!-- Departing section -->
-          <div class="flight-section flight-section--departing">
+          <div v-if="tripType !== 'arriving'" class="flight-section flight-section--departing">
             <div class="flight-section-header">
               <span class="dir-icon">↑</span>
               Departing Seattle
@@ -1220,11 +1241,54 @@ onMounted(() => {
   gap: 24px;
 }
 
+.trip-type-group {
+  display: flex;
+  border: 1px solid var(--driftwood);
+  border-radius: 4px;
+  overflow: hidden;
+  width: fit-content;
+}
+
+.trip-type-btn {
+  font-family: var(--font-sign);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--driftwood);
+  background: var(--parchment);
+  border: none;
+  border-right: 1px solid var(--driftwood);
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.trip-type-btn:last-child {
+  border-right: none;
+}
+
+.trip-type-btn:hover:not(.active) {
+  background: var(--parchment);
+  color: var(--forest);
+}
+
+.trip-type-btn.active {
+  background: var(--forest);
+  color: white;
+}
+
 .flight-sections-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
   align-items: start;
+}
+
+.flight-sections-row--single {
+  grid-template-columns: 1fr;
+  max-width: 480px;
 }
 
 .flight-section {
