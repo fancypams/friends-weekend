@@ -308,7 +308,7 @@ onBeforeUnmount(() => {
   bottom: 0;
   right: 0;
   width: 75%;
-  z-index: 2;
+  z-index: -2;
   pointer-events: none;
   user-select: none;
   margin: 0 -175px -70px;
