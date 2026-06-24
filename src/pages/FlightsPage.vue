@@ -66,6 +66,7 @@ const AIRPORTS = {
   OKC: { lat: 35.39, lon: -97.60, city: 'Oklahoma City' },
   TUL: { lat: 36.20, lon: -95.89, city: 'Tulsa' },
   STL: { lat: 38.75, lon: -90.37, city: 'St. Louis' },
+  SGF: { lat: 37.25, lon: -93.39, city: 'Springfield MO' },
   MEM: { lat: 35.04, lon: -89.98, city: 'Memphis' },
   BNA: { lat: 36.12, lon: -86.68, city: 'Nashville' },
   MSY: { lat: 29.99, lon: -90.26, city: 'New Orleans' },
@@ -83,12 +84,29 @@ const AIRPORTS = {
   BOI: { lat: 43.56, lon: -116.22, city: 'Boise' },
   RNO: { lat: 39.50, lon: -119.77, city: 'Reno' },
   YVR: { lat: 49.19, lon: -123.18, city: 'Vancouver' },
+  // East Africa
+  NBO: { lat: -1.32, lon: 36.93, city: 'Nairobi' },
+  ADD: { lat:  8.98, lon: 38.80, city: 'Addis Ababa' },
+  MBA: { lat: -4.03, lon: 39.59, city: 'Mombasa' },
+  // European hubs (common Kenya→US connections)
+  AMS: { lat: 52.31, lon:  4.76, city: 'Amsterdam' },
+  LHR: { lat: 51.48, lon: -0.45, city: 'London' },
+  CDG: { lat: 49.01, lon:  2.55, city: 'Paris' },
+  FRA: { lat: 50.03, lon:  8.57, city: 'Frankfurt' },
+  // Gulf hubs
+  DXB: { lat: 25.25, lon: 55.36, city: 'Dubai' },
+  DOH: { lat: 25.27, lon: 51.57, city: 'Doha' },
 }
 
-// ── SVG map projection ──
+// ── SVG map projection (US view) ──
 const SVG_W = 800
 const SVG_H = 460
 const MAP_BOUNDS = { minLon: -128, maxLon: -62, minLat: 23, maxLat: 51 }
+
+// ── Africa view ──
+const AFRICA_W = 800
+const AFRICA_H = 460
+const AFRICA_BOUNDS = { minLon: -20, maxLon: 56, minLat: -35, maxLat: 40 }
 
 function project(lon, lat) {
   const { minLon, maxLon, minLat, maxLat } = MAP_BOUNDS
@@ -96,6 +114,15 @@ function project(lon, lat) {
   return {
     x: ((lon - minLon) / (maxLon - minLon)) * SVG_W,
     y: SVG_H - ((lat - minLat) / (maxLat - minLat)) * SVG_H,
+  }
+}
+
+function projectAfrica(lon, lat) {
+  const { minLon, maxLon, minLat, maxLat } = AFRICA_BOUNDS
+  if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) return null
+  return {
+    x: ((lon - minLon) / (maxLon - minLon)) * AFRICA_W,
+    y: AFRICA_H - ((lat - minLat) / (maxLat - minLat)) * AFRICA_H,
   }
 }
 
@@ -119,8 +146,12 @@ function buildArc(originCode, destCode, isArriving) {
   const mx = (from.x + to.x) / 2
   const my = (from.y + to.y) / 2
   const dist = Math.sqrt((to.x - from.x) ** 2 + (to.y - from.y) ** 2)
-  // Arriving arcs bow north (lower y), departing bow south (higher y)
-  const cy = my - (isArriving ? 1 : -1) * dist * 0.28
+  // Arriving arcs bow north (lower y), departing bow south (higher y).
+  // Cap the bow so trans-oceanic arcs don't fly far off-canvas.
+  const maxBow = isArriving
+    ? Math.min(dist * 0.28, my - 8)
+    : Math.min(dist * 0.28, SVG_H - my - 8)
+  const cy = my - (isArriving ? 1 : -1) * Math.max(maxBow, 0)
 
   return {
     path: `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} Q ${mx.toFixed(1)} ${cy.toFixed(1)} ${to.x.toFixed(1)} ${to.y.toFixed(1)}`,
@@ -130,12 +161,16 @@ function buildArc(originCode, destCode, isArriving) {
 
 const seaPos = computed(() => project(AIRPORTS.SEA.lon, AIRPORTS.SEA.lat))
 
-// ── US map background ──
+// ── Map background (world countries) ──
 const usPaths = ref([])
+const africaPaths = ref([])
+const mapView = ref('us')
 
-async function loadUsMap() {
+function panToUS() { mapView.value = 'us' }
+function panToAfrica() { mapView.value = 'africa' }
+
+async function loadMapData() {
   try {
-    // world-atlas@2 uses geographic lon/lat coordinates (WGS 84)
     const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const topo = await res.json()
@@ -154,7 +189,7 @@ async function loadUsMap() {
       return reversed ? pts.slice().reverse() : pts
     }
 
-    function ringToPath(ring) {
+    function ringToPath(projFn, ring) {
       const allPts = []
       for (let i = 0; i < ring.length; i++) {
         const decoded = decodeArc(ring[i])
@@ -162,30 +197,34 @@ async function loadUsMap() {
       }
       const svgPts = allPts
         .map(([lon, lat]) => {
-          const p = project(lon, lat)
+          const p = projFn(lon, lat)
           return p ? `${p.x.toFixed(1)},${p.y.toFixed(1)}` : null
         })
         .filter(Boolean)
       return svgPts.length >= 3 ? `M ${svgPts.join(' L ')} Z` : ''
     }
 
-    // US is numeric id 840 in the countries dataset
-    const usGeom = topo.objects.countries.geometries.find(
-      (g) => String(g.id) === '840'
-    )
-    if (!usGeom) throw new Error('US geometry not found')
+    const us = []
+    const africa = []
 
-    const polygons = usGeom.type === 'Polygon' ? [usGeom.arcs] : usGeom.arcs
-    const paths = []
-    polygons.forEach((rings) => {
-      const d = rings.map(ringToPath).filter(Boolean).join(' ')
-      if (d) paths.push(d)
+    topo.objects.countries.geometries.forEach((geom) => {
+      const polygons = geom.type === 'Polygon' ? [geom.arcs] : geom.arcs
+      if (String(geom.id) === '840') {
+        polygons.forEach((rings) => {
+          const d = rings.map((r) => ringToPath(project, r)).filter(Boolean).join(' ')
+          if (d) us.push(d)
+        })
+      }
+      polygons.forEach((rings) => {
+        const d = rings.map((r) => ringToPath(projectAfrica, r)).filter(Boolean).join(' ')
+        if (d) africa.push(d)
+      })
     })
 
-    usPaths.value = paths
-    console.log(`[FlightsPage] US map loaded: ${paths.length} paths`)
+    usPaths.value = us
+    africaPaths.value = africa
   } catch (err) {
-    console.warn('[FlightsPage] US map failed:', err.message)
+    console.warn('[FlightsPage] Map data failed:', err.message)
   }
 }
 
@@ -216,6 +255,21 @@ const mapWaypoints = computed(() => {
     })
   })
   return [...seen.values()]
+})
+
+// True if any flight leg uses an airport outside the US projection bounds
+const hasAfricaFlights = computed(() =>
+  flights.value.some((f) =>
+    [f.origin, f.destination].some((code) => {
+      const airport = AIRPORTS[code?.toUpperCase()]
+      return airport && !project(airport.lon, airport.lat)
+    })
+  )
+)
+
+const nboAfricaPos = computed(() => {
+  const nbo = AIRPORTS.NBO
+  return nbo ? projectAfrica(nbo.lon, nbo.lat) : null
 })
 
 // ── GViz cell parsers ──
@@ -534,7 +588,7 @@ async function handleSubmit() {
 
 onMounted(() => {
   loadFlights()
-  loadUsMap()
+  loadMapData()
 })
 </script>
 
@@ -567,11 +621,15 @@ onMounted(() => {
         <div v-if="loading" class="state-msg"><div class="spinner"></div>Loading…</div>
         <div v-else-if="errorMsg" class="state-msg error">{{ errorMsg }}</div>
         <div v-else class="map-card">
+          <div v-if="hasAfricaFlights" class="map-pan-btns">
+            <button class="pan-btn" @click="panToUS">← US</button>
+            <button class="pan-btn" @click="panToAfrica">Africa →</button>
+          </div>
           <svg
+            v-show="mapView === 'us' || !hasAfricaFlights"
             :viewBox="`0 0 ${SVG_W} ${SVG_H}`"
             class="arc-map"
             aria-label="Flight arc map"
-            preserveAspectRatio="xMidYMid meet"
           >
             <defs>
               <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -581,7 +639,7 @@ onMounted(() => {
             <rect width="100%" height="100%" fill="#161d1a" />
             <rect width="100%" height="100%" fill="url(#grid)" />
 
-            <!-- US state outlines -->
+            <!-- US outline -->
             <path
               v-for="(d, i) in usPaths"
               :key="`us-${i}`"
@@ -622,6 +680,33 @@ onMounted(() => {
             <text v-if="!loading && flights.length === 0" x="50%" y="50%" text-anchor="middle" class="map-empty">
               No flights added yet
             </text>
+          </svg>
+
+          <!-- Africa view -->
+          <svg
+            v-show="mapView === 'africa' && hasAfricaFlights"
+            viewBox="0 0 800 460"
+            class="arc-map"
+            aria-label="Africa region map"
+          >
+            <defs>
+              <pattern id="grid-africa" width="40" height="40" patternUnits="userSpaceOnUse">
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#2a3530" stroke-width="0.5" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="#161d1a" />
+            <rect width="100%" height="100%" fill="url(#grid-africa)" />
+            <path
+              v-for="(d, i) in africaPaths"
+              :key="`af-${i}`"
+              :d="d"
+              class="land-country"
+            />
+            <template v-if="nboAfricaPos">
+              <circle :cx="nboAfricaPos.x" :cy="nboAfricaPos.y" r="7" fill="rgba(255,255,255,0.15)" />
+              <circle :cx="nboAfricaPos.x" :cy="nboAfricaPos.y" r="4" fill="#e8c468" />
+              <text :x="nboAfricaPos.x + 10" :y="nboAfricaPos.y + 5" class="map-label">Nairobi (NBO)</text>
+            </template>
           </svg>
 
           <div class="map-legend">
@@ -1005,10 +1090,42 @@ onMounted(() => {
   overflow: hidden;
 }
 
+.map-pan-btns {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px 4px;
+}
+
+.pan-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: var(--font-sign);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.pan-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
 .arc-map {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.land-country {
+  fill: #1a2820;
+  stroke: #3a5540;
+  stroke-width: 0.5;
+  stroke-linejoin: round;
 }
 
 .us-state {
