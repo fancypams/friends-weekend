@@ -98,15 +98,20 @@ const AIRPORTS = {
   DOH: { lat: 25.27, lon: 51.57, city: 'Doha' },
 }
 
-// ── SVG map projection (US view) ──
-const SVG_W = 800
-const SVG_H = 460
-const MAP_BOUNDS = { minLon: -128, maxLon: -62, minLat: 23, maxLat: 51 }
+// ── SVG map projection ──
+// Both SVG_W and maxLon are scaled together so the lon scale (px/°) is preserved.
+// Old: 2200px / 188° lon. New maxLon=120 → 248° → SVG_W = 248/188 × 2200 = 2902.
+// This keeps ALL existing x-coordinates identical (SEA, CDG, NBO unchanged).
+// SVG_H likewise preserves the original lat scale: 58° × 15.33 px/° = 889px.
+const SVG_W = 2902
+const SVG_H = 889
+const MAP_BOUNDS = { minLon: -128, maxLon: 120, minLat: -5, maxLat: 53 }
 
-// ── Africa view ──
-const AFRICA_W = 800
-const AFRICA_H = 460
-const AFRICA_BOUNDS = { minLon: -20, maxLon: 56, minLat: -35, maxLat: 40 }
+// VIEW_US: exactly the same as the original US-only map.
+// VIEW_EUROPE: same 1.739:1 AR (card height stays 460px), full canvas height shown so
+//   Europe is at the top and East Africa / NBO appears in the lower portion.
+const VIEW_US     = [0,   0, 800,  460]
+const VIEW_EUROPE = [870, 0, 1546, 889]
 
 function project(lon, lat) {
   const { minLon, maxLon, minLat, maxLat } = MAP_BOUNDS
@@ -117,31 +122,33 @@ function project(lon, lat) {
   }
 }
 
-function projectAfrica(lon, lat) {
-  const { minLon, maxLon, minLat, maxLat } = AFRICA_BOUNDS
-  if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) return null
-  return {
-    x: ((lon - minLon) / (maxLon - minLon)) * AFRICA_W,
-    y: AFRICA_H - ((lat - minLat) / (maxLat - minLat)) * AFRICA_H,
-  }
-}
-
 function airportPos(code) {
   const airport = AIRPORTS[code?.toUpperCase()]
   if (!airport) {
     console.warn(`[FlightsPage] No coordinates for airport "${code}" — add it to AIRPORTS to show on map`)
     return null
   }
-  return { pos: project(airport.lon, airport.lat), city: airport.city }
+  return { pos: project(airport.lon, airport.lat), city: airport.city, lon: airport.lon, lat: airport.lat }
 }
 
 function buildArc(originCode, destCode, isArriving) {
   const origin = airportPos(originCode)
   const dest = airportPos(destCode)
-  if (!origin?.pos || !dest?.pos) return null
+  if (!origin || !dest) return null
+  // Both off-map: skip (the Africa view handles these legs)
+  if (!origin.pos && !dest.pos) return null
 
-  const { pos: from } = origin
-  const { pos: to } = dest
+  // Clamp off-map endpoint to nearest map edge so international → US legs draw correctly
+  function clampEdge({ lon, lat }) {
+    const { minLon, maxLon, minLat, maxLat } = MAP_BOUNDS
+    return {
+      x: Math.max(0, Math.min(SVG_W, ((lon - minLon) / (maxLon - minLon)) * SVG_W)),
+      y: Math.max(0, Math.min(SVG_H, SVG_H - ((lat - minLat) / (maxLat - minLat)) * SVG_H)),
+    }
+  }
+
+  const from = origin.pos ?? clampEdge(origin)
+  const to = dest.pos ?? clampEdge(dest)
 
   const mx = (from.x + to.x) / 2
   const my = (from.y + to.y) / 2
@@ -163,11 +170,43 @@ const seaPos = computed(() => project(AIRPORTS.SEA.lon, AIRPORTS.SEA.lat))
 
 // ── Map background (world countries) ──
 const usPaths = ref([])
-const africaPaths = ref([])
-const mapView = ref('us')
+const contextPaths = ref([])  // all non-US countries in map bounds (Canada, Mexico, Europe, etc.)
 
-function panToUS() { mapView.value = 'us' }
-function panToAfrica() { mapView.value = 'africa' }
+// ── Pan animation ──
+const arcMapViewBox = ref([...VIEW_US])
+const isPannedRight = ref(false)
+let panRaf = null
+
+function easeInOut(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t }
+
+function animatePan(target, duration = 1300) {
+  const start = [...arcMapViewBox.value]
+  if (panRaf) cancelAnimationFrame(panRaf)
+  let startTs = null
+
+  function step(ts) {
+    if (!startTs) startTs = ts
+    const t = Math.min((ts - startTs) / duration, 1)
+    const e = easeInOut(t)
+    arcMapViewBox.value = start.map((s, i) => s + (target[i] - s) * e)
+    if (t < 1) {
+      panRaf = requestAnimationFrame(step)
+    } else {
+      arcMapViewBox.value = [...target]
+      panRaf = null
+    }
+  }
+  panRaf = requestAnimationFrame(step)
+}
+
+function panToUS() {
+  isPannedRight.value = false
+  animatePan(VIEW_US)
+}
+function panToAfrica() {
+  isPannedRight.value = true
+  animatePan(VIEW_EUROPE)
+}
 
 async function loadMapData() {
   try {
@@ -205,24 +244,19 @@ async function loadMapData() {
     }
 
     const us = []
-    const africa = []
+    const context = []
 
     topo.objects.countries.geometries.forEach((geom) => {
       const polygons = geom.type === 'Polygon' ? [geom.arcs] : geom.arcs
-      if (String(geom.id) === '840') {
-        polygons.forEach((rings) => {
-          const d = rings.map((r) => ringToPath(project, r)).filter(Boolean).join(' ')
-          if (d) us.push(d)
-        })
-      }
+      const target = String(geom.id) === '840' ? us : context
       polygons.forEach((rings) => {
-        const d = rings.map((r) => ringToPath(projectAfrica, r)).filter(Boolean).join(' ')
-        if (d) africa.push(d)
+        const d = rings.map((r) => ringToPath(project, r)).filter(Boolean).join(' ')
+        if (d) target.push(d)
       })
     })
 
     usPaths.value = us
-    africaPaths.value = africa
+    contextPaths.value = context
   } catch (err) {
     console.warn('[FlightsPage] Map data failed:', err.message)
   }
@@ -257,20 +291,15 @@ const mapWaypoints = computed(() => {
   return [...seen.values()]
 })
 
-// True if any flight leg uses an airport outside the US projection bounds
-const hasAfricaFlights = computed(() =>
+// Show pan buttons when any flight touches an airport east of the US (lon > -62)
+const hasEasternFlights = computed(() =>
   flights.value.some((f) =>
     [f.origin, f.destination].some((code) => {
       const airport = AIRPORTS[code?.toUpperCase()]
-      return airport && !project(airport.lon, airport.lat)
+      return airport && airport.lon > -62
     })
   )
 )
-
-const nboAfricaPos = computed(() => {
-  const nbo = AIRPORTS.NBO
-  return nbo ? projectAfrica(nbo.lon, nbo.lat) : null
-})
 
 // ── GViz cell parsers ──
 // GViz returns dates as "Date(year,month0,day)" and times as "Date(1899,11,30,h,m,s)"
@@ -621,13 +650,12 @@ onMounted(() => {
         <div v-if="loading" class="state-msg"><div class="spinner"></div>Loading…</div>
         <div v-else-if="errorMsg" class="state-msg error">{{ errorMsg }}</div>
         <div v-else class="map-card">
-          <div v-if="hasAfricaFlights" class="map-pan-btns">
-            <button class="pan-btn" @click="panToUS">← US</button>
-            <button class="pan-btn" @click="panToAfrica">Africa →</button>
+          <div class="map-pan-btns">
+            <button v-if="isPannedRight" class="pan-btn" @click="panToUS">← Pan Left</button>
+            <button v-if="hasEasternFlights && !isPannedRight" class="pan-btn" @click="panToAfrica">Pan Right →</button>
           </div>
           <svg
-            v-show="mapView === 'us' || !hasAfricaFlights"
-            :viewBox="`0 0 ${SVG_W} ${SVG_H}`"
+            :viewBox="arcMapViewBox.join(' ')"
             class="arc-map"
             aria-label="Flight arc map"
           >
@@ -636,8 +664,16 @@ onMounted(() => {
                 <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#2a3530" stroke-width="0.5" />
               </pattern>
             </defs>
-            <rect width="100%" height="100%" fill="#161d1a" />
-            <rect width="100%" height="100%" fill="url(#grid)" />
+            <rect :width="SVG_W" height="950" fill="#161d1a" />
+            <rect :width="SVG_W" height="950" fill="url(#grid)" />
+
+            <!-- World countries + neighbors -->
+            <path
+              v-for="(d, i) in contextPaths"
+              :key="`ctx-${i}`"
+              :d="d"
+              class="land-country"
+            />
 
             <!-- US outline -->
             <path
@@ -659,14 +695,10 @@ onMounted(() => {
               :class="arc.isArriving ? 'arc-arriving' : 'arc-departing'"
             />
 
-            <!-- Waypoint dots + labels (home airports and connection cities) -->
+            <!-- Waypoint dots + labels -->
             <g v-for="wp in mapWaypoints" :key="wp.code">
               <circle :cx="wp.pos.x" :cy="wp.pos.y" r="4.5" fill="#e8c468" />
-              <text
-                :x="wp.pos.x + 9"
-                :y="wp.pos.y + 4"
-                class="map-label"
-              >{{ wp.city }}</text>
+              <text :x="wp.pos.x + 9" :y="wp.pos.y + 4" class="map-label">{{ wp.city }}</text>
             </g>
 
             <!-- SEA hub -->
@@ -680,33 +712,6 @@ onMounted(() => {
             <text v-if="!loading && flights.length === 0" x="50%" y="50%" text-anchor="middle" class="map-empty">
               No flights added yet
             </text>
-          </svg>
-
-          <!-- Africa view -->
-          <svg
-            v-show="mapView === 'africa' && hasAfricaFlights"
-            viewBox="0 0 800 460"
-            class="arc-map"
-            aria-label="Africa region map"
-          >
-            <defs>
-              <pattern id="grid-africa" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#2a3530" stroke-width="0.5" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="#161d1a" />
-            <rect width="100%" height="100%" fill="url(#grid-africa)" />
-            <path
-              v-for="(d, i) in africaPaths"
-              :key="`af-${i}`"
-              :d="d"
-              class="land-country"
-            />
-            <template v-if="nboAfricaPos">
-              <circle :cx="nboAfricaPos.x" :cy="nboAfricaPos.y" r="7" fill="rgba(255,255,255,0.15)" />
-              <circle :cx="nboAfricaPos.x" :cy="nboAfricaPos.y" r="4" fill="#e8c468" />
-              <text :x="nboAfricaPos.x + 10" :y="nboAfricaPos.y + 5" class="map-label">Nairobi (NBO)</text>
-            </template>
           </svg>
 
           <div class="map-legend">
