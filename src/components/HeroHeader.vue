@@ -200,6 +200,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .hero-header {
   position: relative;
+  z-index: 500;
   min-height: fit-content;
   display: flex;
   flex-direction: column;

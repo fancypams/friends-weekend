@@ -151,8 +151,7 @@ Deno.serve(async (req) => {
   const arrivingLegsRaw = Array.isArray(body.arriving) ? body.arriving : []
   const departingLegsRaw = Array.isArray(body.departing) ? body.departing : []
 
-  if (arrivingLegsRaw.length === 0) return badRequest('At least one arriving flight leg is required')
-  if (departingLegsRaw.length === 0) return badRequest('At least one departing flight leg is required')
+  if (arrivingLegsRaw.length === 0 && departingLegsRaw.length === 0) return badRequest('At least one flight leg is required')
 
   const arrivingLegs = arrivingLegsRaw.map(normalizeLeg)
   const departingLegs = departingLegsRaw.map(normalizeLeg)
