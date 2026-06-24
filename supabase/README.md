@@ -48,6 +48,8 @@ Deploy these functions:
 - `invite-and-send`
 - `media`
 - `process-media`
+- `flight-entry-context`
+- `migrate-flight-travelers`
 
 For this project, auth is enforced inside each function via `requireAuth()` in `functions/_shared/auth.ts`.
 Deploy user-facing functions with gateway JWT verification disabled:
@@ -62,6 +64,8 @@ supabase functions deploy invites --no-verify-jwt
 supabase functions deploy invite-and-send --no-verify-jwt
 supabase functions deploy media --no-verify-jwt
 supabase functions deploy process-media
+supabase functions deploy flight-entry-context --no-verify-jwt
+supabase functions deploy migrate-flight-travelers --no-verify-jwt
 ```
 
 Why: some projects can hit Edge gateway `Invalid JWT` despite valid Auth-issued access tokens.

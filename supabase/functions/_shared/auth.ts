@@ -6,6 +6,8 @@ export type ProfileRow = {
   email: string
   role: 'admin' | 'member'
   active: boolean
+  display_name: string | null
+  family: string | null
 }
 
 export type AuthResult = {
@@ -65,7 +67,7 @@ function isBypassEnabled() {
 async function resolveBypassIdentity(admin: SupabaseClient): Promise<{ user: User; profile: ProfileRow } | null> {
   const { data: adminProfile, error: adminErr } = await admin
     .from('profiles')
-    .select('user_id,email,role,active')
+    .select('user_id,email,role,active,display_name,family')
     .eq('active', true)
     .eq('role', 'admin')
     .limit(1)
@@ -77,7 +79,7 @@ async function resolveBypassIdentity(admin: SupabaseClient): Promise<{ user: Use
   if (!profile) {
     const { data: anyProfile, error: anyErr } = await admin
       .from('profiles')
-      .select('user_id,email,role,active')
+      .select('user_id,email,role,active,display_name,family')
       .eq('active', true)
       .limit(1)
       .maybeSingle<ProfileRow>()
@@ -139,7 +141,7 @@ export async function requireAuth(req: Request, options: RequireAuthOptions = {}
 
   const { data: profile, error: profileErr } = await admin
     .from('profiles')
-    .select('user_id,email,role,active')
+    .select('user_id,email,role,active,display_name,family')
     .eq('user_id', authData.user.id)
     .maybeSingle<ProfileRow>()
 

@@ -339,6 +339,47 @@ function cellStr(row, col) {
   return parseGvizCell(c.v).display
 }
 
+function flightGroupKey(f) {
+  return [
+    f.family,
+    f.direction,
+    f.homeAirport,
+    f.flightNumber,
+    f.dateSort || f.date,
+    f.departSort || f.departureTime,
+    f.arriveSort || f.arrivalTime,
+    f.origin,
+    f.destination,
+  ].join('||')
+}
+
+function groupFlightRows(rows) {
+  const groups = new Map()
+
+  rows.forEach((row) => {
+    const key = flightGroupKey(row)
+    const existing = groups.get(key)
+    const traveler = row.traveler?.trim()
+
+    if (!existing) {
+      groups.set(key, {
+        ...row,
+        travelers: traveler ? [traveler] : [],
+      })
+      return
+    }
+
+    if (traveler && !existing.travelers.includes(traveler)) {
+      existing.travelers.push(traveler)
+    }
+  })
+
+  return [...groups.values()].map((row) => ({
+    ...row,
+    travelerDisplay: row.travelers.length > 0 ? row.travelers.join(', ') : row.family,
+  }))
+}
+
 // ── Sorting & grouping ──
 const sortedFlights = computed(() =>
   [...flights.value].sort((a, b) => {
@@ -405,17 +446,21 @@ async function loadFlights() {
         return {
           family: cellStr(row, 0),
           direction,
+          homeAirport: cellStr(row, 2).toUpperCase(),
           flightNumber: cellStr(row, 3),
           date: dateParsed.display,
           dateSort: dateParsed.sort,
           departureTime: departParsed.display,
           departSort: departParsed.sort,
           arrivalTime: arriveParsed.display,
+          arriveSort: arriveParsed.sort,
           origin: cellStr(row, 7).toUpperCase(),
           destination: cellStr(row, 8).toUpperCase(),
+          traveler: cellStr(row, 9),
         }
       })
       .filter((r) => r.family && r.direction && r.origin && r.destination)
+    flights.value = groupFlightRows(flights.value)
   } catch (err) {
     console.error('[FlightsPage] load', err)
     errorMsg.value = err.message || 'Could not load flight data'
@@ -441,9 +486,6 @@ async function getAuthHeaders() {
   }
 }
 
-// ── Form ──
-const FAMILIES = ['Ekanger', 'Dzambo', 'Schambach', 'Montañez', 'Habibi', 'Donaldson']
-
 function createLeg(origin = '', destination = '') {
   return {
     origin,
@@ -457,7 +499,13 @@ function createLeg(origin = '', destination = '') {
   }
 }
 
+// ── Form ──
 const formFamily = ref('')
+const travelerName = ref('')
+const spouseFirstName = ref('')
+const entryContextLoading = ref(false)
+const entryContextError = ref(null)
+const sameItineraryForSpouse = ref(true)
 const tripType = ref('roundtrip') // 'roundtrip' | 'arriving' | 'departing'
 const arrLegs = ref([createLeg()])
 const depLegs = ref([createLeg()])
@@ -465,6 +513,19 @@ const depLegs = ref([createLeg()])
 const submitting = ref(false)
 const submitError = ref(null)
 const successMsg = ref(null)
+
+const sameItineraryLabel = computed(() => {
+  const name = spouseFirstName.value || 'your spouse'
+  return `${name} is on these same flights`
+})
+
+const entryContextWarning = computed(() => {
+  if (!entryContextError.value) return ''
+  if (formFamily.value && travelerName.value) {
+    return `${entryContextError.value} Spouse name lookup is unavailable, but your profile was loaded.`
+  }
+  return entryContextError.value
+})
 
 // The family's home airport, used for the arc map — derived from the outer legs
 const homeAirportCode = computed(() => {
@@ -536,10 +597,64 @@ async function lookupLeg(leg) {
 }
 
 function resetForm() {
-  formFamily.value = ''
+  sameItineraryForSpouse.value = true
   tripType.value = 'roundtrip'
   arrLegs.value = [createLeg()]
   depLegs.value = [createLeg()]
+}
+
+async function loadProfileContextFallback() {
+  if (!supabase) return false
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+  if (sessionError) throw sessionError
+
+  const userId = sessionData.session?.user?.id
+  if (!userId) return false
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('display_name,family')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (profileError) throw profileError
+
+  const fallbackTraveler = String(profile?.display_name || '').trim()
+  const fallbackFamily = String(profile?.family || '').trim()
+  if (!fallbackTraveler || !fallbackFamily) return false
+
+  travelerName.value = fallbackTraveler
+  formFamily.value = fallbackFamily
+  spouseFirstName.value = ''
+  return true
+}
+
+async function loadFlightEntryContext() {
+  entryContextLoading.value = true
+  entryContextError.value = null
+
+  try {
+    const headers = await getAuthHeaders()
+    const res = await fetch(supabaseFunctionUrl('flight-entry-context'), {
+      method: 'GET',
+      headers,
+    })
+    const body = await res.json().catch(() => ({}))
+
+    if (!res.ok) throw new Error(body.error || `Error ${res.status}`)
+
+    formFamily.value = String(body.family || '').trim()
+    travelerName.value = String(body.travelerName || '').trim()
+    spouseFirstName.value = String(body.spouseFirstName || '').trim()
+  } catch (err) {
+    const loadedFallback = await loadProfileContextFallback().catch(() => false)
+    entryContextError.value = loadedFallback
+      ? 'Flight profile service is unavailable.'
+      : err.message || 'Could not load your flight profile'
+  }
+
+  entryContextLoading.value = false
 }
 
 function validateLegs(legs, label) {
@@ -567,8 +682,8 @@ function serializeLegs(legs) {
 
 function createFlightPayload() {
   return {
-    family: formFamily.value,
     homeAirport: homeAirportCode.value,
+    sameItineraryForSpouse: sameItineraryForSpouse.value,
     arriving: tripType.value !== 'departing' ? serializeLegs(arrLegs.value) : [],
     departing: tripType.value !== 'arriving' ? serializeLegs(depLegs.value) : [],
   }
@@ -578,7 +693,9 @@ async function handleSubmit() {
   submitError.value = null
   successMsg.value = null
 
-  if (!formFamily.value) { submitError.value = 'Please select your family'; return }
+  if (entryContextLoading.value) { submitError.value = 'Still loading your flight profile'; return }
+  if (!formFamily.value) { submitError.value = 'No family found for your profile'; return }
+  if (!travelerName.value) { submitError.value = 'No traveler name found for your profile'; return }
   if (!homeAirportCode.value) { submitError.value = 'Home airport is required'; return }
 
   if (tripType.value !== 'departing') {
@@ -619,6 +736,7 @@ async function handleSubmit() {
 onMounted(() => {
   loadFlights()
   loadMapData()
+  loadFlightEntryContext()
 })
 </script>
 
@@ -750,7 +868,7 @@ onMounted(() => {
             <div class="timeline-flights">
               <div
                 v-for="f in group.flights"
-                :key="f.family + f.flightNumber"
+                :key="flightGroupKey(f)"
                 class="timeline-card"
                 :class="isArriving(f) ? 'timeline-card--arriving' : 'timeline-card--departing'"
               >
@@ -762,6 +880,7 @@ onMounted(() => {
                       {{ isArriving(f) ? '↓ Arriving' : '↑ Departing' }}
                     </span>
                   </div>
+                  <div class="timeline-travelers">{{ f.travelerDisplay }}</div>
                   <div class="timeline-route">{{ getRoute(f) }}</div>
                   <div class="timeline-meta">
                     <span>{{ f.flightNumber }}</span>
@@ -793,8 +912,11 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="f in sortedFlights" :key="f.family + f.direction + f.flightNumber">
-                <td>{{ f.family }}</td>
+              <tr v-for="f in sortedFlights" :key="flightGroupKey(f)">
+                <td>
+                  <span class="table-family">{{ f.family }}</span>
+                  <span class="table-travelers">{{ f.travelerDisplay }}</span>
+                </td>
                 <td>
                   <span class="dir-badge" :class="isArriving(f) ? 'dir-badge--arriving' : 'dir-badge--departing'">
                     {{ isArriving(f) ? '↓ Arriving' : '↑ Departing' }}
@@ -814,12 +936,32 @@ onMounted(() => {
       <div v-show="activeTab === 'add'" class="tab-content">
         <div class="add-form">
 
+          <div class="entry-context">
+            <div>
+              <span class="form-label">Traveler</span>
+              <p v-if="entryContextLoading" class="entry-context-value">Loading…</p>
+              <p v-else class="entry-context-value">{{ travelerName || 'Unknown traveler' }}</p>
+            </div>
+            <div>
+              <span class="form-label">Family</span>
+              <p v-if="entryContextLoading" class="entry-context-value">Loading…</p>
+              <p v-else class="entry-context-value">{{ formFamily || 'Unknown family' }}</p>
+            </div>
+          </div>
+
+          <div
+            v-if="entryContextWarning"
+            :class="formFamily && travelerName ? 'form-warning' : 'form-error'"
+          >
+            {{ entryContextWarning }}
+          </div>
+
           <div class="form-group">
-            <label class="form-label">Your family</label>
-            <select v-model="formFamily" class="form-select">
-              <option value="" disabled>Select family…</option>
-              <option v-for="f in FAMILIES" :key="f" :value="f">{{ f }}</option>
-            </select>
+            <label class="same-itinerary-toggle">
+              <input v-model="sameItineraryForSpouse" type="checkbox" />
+              <span class="toggle-box" aria-hidden="true"></span>
+              <span>{{ sameItineraryLabel }}</span>
+            </label>
           </div>
 
           <div class="form-group">
@@ -969,7 +1111,7 @@ onMounted(() => {
 
           <div class="form-actions">
             <button class="btn-cancel" type="button" @click="activeTab = 'table'">Cancel</button>
-            <button class="btn-save" type="button" :disabled="submitting" @click="handleSubmit">
+            <button class="btn-save" type="button" :disabled="submitting || entryContextLoading || !formFamily || !travelerName" @click="handleSubmit">
               {{ submitting ? 'Saving…' : 'Save flight info →' }}
             </button>
           </div>
@@ -1282,6 +1424,12 @@ onMounted(() => {
   color: var(--forest);
 }
 
+.timeline-travelers {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--driftwood);
+}
+
 .timeline-route {
   font-family: var(--font-display);
   font-size: 17px;
@@ -1337,6 +1485,25 @@ onMounted(() => {
   vertical-align: middle;
 }
 
+.table-family,
+.table-travelers {
+  display: block;
+}
+
+.table-family {
+  font-family: var(--font-sign);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.table-travelers {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--driftwood);
+}
+
 .flights-table tbody tr:last-child td {
   border-bottom: none;
 }
@@ -1362,6 +1529,79 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+.entry-context {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 640px;
+}
+
+.entry-context > div {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(138, 122, 94, 0.18);
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+
+.entry-context-value {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+  color: var(--forest);
+}
+
+.same-itinerary-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--forest);
+  cursor: pointer;
+  width: fit-content;
+}
+
+.same-itinerary-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle-box {
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--driftwood);
+  position: relative;
+  flex: 0 0 auto;
+  transition: background 0.15s;
+}
+
+.toggle-box::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 0.15s;
+}
+
+.same-itinerary-toggle input:checked + .toggle-box {
+  background: var(--forest);
+}
+
+.same-itinerary-toggle input:checked + .toggle-box::after {
+  transform: translateX(16px);
+}
+
+.same-itinerary-toggle input:focus-visible + .toggle-box {
+  outline: 2px solid var(--terracotta);
+  outline-offset: 2px;
 }
 
 .trip-type-group {
@@ -1610,6 +1850,15 @@ onMounted(() => {
   padding: 10px 14px;
 }
 
+.form-warning {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--driftwood);
+  background: rgba(196, 160, 40, 0.12);
+  border-radius: 4px;
+  padding: 10px 14px;
+}
+
 .form-success {
   font-family: var(--font-sans);
   font-size: 13px;
@@ -1681,6 +1930,10 @@ onMounted(() => {
   }
 
   .flight-sections-row {
+    grid-template-columns: 1fr;
+  }
+
+  .entry-context {
     grid-template-columns: 1fr;
   }
 

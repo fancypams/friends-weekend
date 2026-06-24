@@ -78,6 +78,17 @@ function flightCellStr(row, col) {
   return parseGvizCell(c.v).display
 }
 
+function flightGroupKey(item) {
+  return [
+    item.isoDate,
+    item.timeSort,
+    item.family,
+    item.direction,
+    item.route,
+    item.flightNumber,
+  ].join('||')
+}
+
 function cellStr(row, index) {
   const cell = row.c[index]
   if (!cell || cell.v == null) return ''
@@ -146,12 +157,14 @@ onMounted(async () => {
       const flightData = JSON.parse(flightMatch[1])
       if (flightData.status !== 'error') {
         const flightRows = flightData.table.rows ?? []
+        const flightGroups = new Map()
         flightRows.forEach((row) => {
           const family = flightCellStr(row, 0)
           const direction = flightCellStr(row, 1)
           const flightNumber = flightCellStr(row, 3)
           const origin = flightCellStr(row, 7).toUpperCase()
           const destination = flightCellStr(row, 8).toUpperCase()
+          const traveler = flightCellStr(row, 9)
           if (!family || !direction || !origin || !destination) return
           if (origin !== 'SEA' && destination !== 'SEA') return
 
@@ -172,24 +185,39 @@ onMounted(async () => {
 
           const flightItem = {
             type: 'flight',
+            isoDate,
             time: timeParsed.display,
             timeSort: timeToMinutes(timeParsed.display),
             family,
             direction: isArriving ? 'Arriving' : 'Departing',
             route,
             flightNumber,
+            travelers: traveler ? [traveler] : [],
           }
 
-          // Find or create the day for this flight's date
-          if (!dayMap.has(isoDate)) {
-            dayMap.set(isoDate, {
-              label: isoToLabel(isoDate),
-              date: isoToDateDisplay(isoDate),
-              isoDate,
+          const key = flightGroupKey(flightItem)
+          const existing = flightGroups.get(key)
+          if (!existing) {
+            flightGroups.set(key, flightItem)
+          } else if (traveler && !existing.travelers.includes(traveler)) {
+            existing.travelers.push(traveler)
+          }
+        })
+
+        flightGroups.forEach((flightItem) => {
+          if (!dayMap.has(flightItem.isoDate)) {
+            dayMap.set(flightItem.isoDate, {
+              label: isoToLabel(flightItem.isoDate),
+              date: isoToDateDisplay(flightItem.isoDate),
+              isoDate: flightItem.isoDate,
               activities: [],
             })
           }
-          dayMap.get(isoDate).activities.push(flightItem)
+
+          dayMap.get(flightItem.isoDate).activities.push({
+            ...flightItem,
+            travelerDisplay: flightItem.travelers.length > 0 ? flightItem.travelers.join(', ') : flightItem.family,
+          })
         })
       }
     }
@@ -264,6 +292,7 @@ onMounted(async () => {
                     </span>
                   </div>
                   <p class="flight-meta">{{ item.route }} · {{ item.flightNumber }}</p>
+                  <p class="flight-travelers">{{ item.travelerDisplay }}</p>
                 </div>
               </template>
 
@@ -495,6 +524,12 @@ onMounted(async () => {
   color: var(--driftwood);
   margin: 0;
   letter-spacing: 0.02em;
+}
+
+.flight-travelers {
+  font-size: 12px;
+  color: var(--driftwood);
+  margin: 4px 0 0;
 }
 
 /* ── States ── */

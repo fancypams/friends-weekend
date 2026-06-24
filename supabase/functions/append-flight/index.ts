@@ -75,7 +75,7 @@ async function getGoogleAccessToken(): Promise<string> {
 }
 
 async function appendRows(accessToken: string, rows: string[][]) {
-  const range = encodeURIComponent(`${SHEET_NAME}!A:I`)
+  const range = encodeURIComponent(`${SHEET_NAME}!A:J`)
   const url =
     `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${range}:append` +
     `?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`
@@ -117,10 +117,10 @@ Deno.serve(async (req) => {
   }
 
   let body: {
-    family?: unknown
     homeAirport?: unknown
     arriving?: unknown
     departing?: unknown
+    sameItineraryForSpouse?: unknown
   }
 
   try {
@@ -129,10 +129,13 @@ Deno.serve(async (req) => {
     return badRequest('Invalid JSON body')
   }
 
-  const family = String(body.family ?? '').trim()
+  const family = String(auth.profile.family ?? '').trim()
+  const traveler = String(auth.profile.display_name ?? '').trim()
   const homeAirport = String(body.homeAirport ?? '').trim().toUpperCase()
+  const sameItineraryForSpouse = body.sameItineraryForSpouse !== false
 
-  if (!VALID_FAMILIES.includes(family)) return badRequest('Invalid family selection')
+  if (!VALID_FAMILIES.includes(family)) return badRequest('No valid family found for this profile')
+  if (!traveler) return badRequest('No traveler name found for this profile')
   if (!homeAirport || homeAirport.length > 4) return badRequest('Invalid home airport code')
 
   function normalizeLeg(raw: unknown) {
@@ -161,13 +164,44 @@ Deno.serve(async (req) => {
   if (arrivingLegs.some((leg) => leg === null)) return badRequest('Arriving flight details incomplete')
   if (departingLegs.some((leg) => leg === null)) return badRequest('Departing flight details incomplete')
 
+  const travelers = [traveler]
+
+  if (sameItineraryForSpouse) {
+    const { data: spouseProfile, error: spouseErr } = await auth.admin
+      .from('profiles')
+      .select('display_name,email')
+      .eq('active', true)
+      .eq('family', family)
+      .neq('user_id', auth.user.id)
+      .order('display_name', { ascending: true, nullsFirst: false })
+      .order('email', { ascending: true })
+      .limit(1)
+      .maybeSingle<{ display_name: string | null; email: string | null }>()
+
+    if (spouseErr) return serverError('Failed to load spouse profile', spouseErr.message)
+
+    const spouseName = String(spouseProfile?.display_name ?? '').trim()
+    if (spouseName && !travelers.includes(spouseName)) travelers.push(spouseName)
+  }
+
+  function rowsForLeg(direction: 'Arriving' | 'Departing', leg: NonNullable<ReturnType<typeof normalizeLeg>>) {
+    return travelers.map((name) => [
+      family,
+      direction,
+      homeAirport,
+      leg.flight,
+      leg.date,
+      leg.departTime,
+      leg.arriveTime,
+      leg.origin,
+      leg.destination,
+      name,
+    ])
+  }
+
   const rows = [
-    ...(arrivingLegs as NonNullable<ReturnType<typeof normalizeLeg>>[]).map((leg) => [
-      family, 'Arriving', homeAirport, leg.flight, leg.date, leg.departTime, leg.arriveTime, leg.origin, leg.destination,
-    ]),
-    ...(departingLegs as NonNullable<ReturnType<typeof normalizeLeg>>[]).map((leg) => [
-      family, 'Departing', homeAirport, leg.flight, leg.date, leg.departTime, leg.arriveTime, leg.origin, leg.destination,
-    ]),
+    ...(arrivingLegs as NonNullable<ReturnType<typeof normalizeLeg>>[]).flatMap((leg) => rowsForLeg('Arriving', leg)),
+    ...(departingLegs as NonNullable<ReturnType<typeof normalizeLeg>>[]).flatMap((leg) => rowsForLeg('Departing', leg)),
   ]
 
   try {

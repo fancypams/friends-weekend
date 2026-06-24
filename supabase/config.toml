@@ -74,3 +74,9 @@ verify_jwt = false
 
 [functions.funnel-telemetry]
 verify_jwt = false
+
+[functions.flight-entry-context]
+verify_jwt = false
+
+[functions.migrate-flight-travelers]
+verify_jwt = false
