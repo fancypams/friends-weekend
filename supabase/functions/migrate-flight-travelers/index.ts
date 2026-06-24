@@ -135,6 +135,17 @@ function normalizeRow(row: unknown[]) {
   return HEADER.map((_, index) => String(row[index] ?? '').trim())
 }
 
+function isHeaderRow(row: unknown[]) {
+  const first = String(row[0] ?? '').trim().toLowerCase()
+  const second = String(row[1] ?? '').trim().toLowerCase()
+  return (first === 'family' || first === 'family name') && second === 'direction'
+}
+
+function normalizeHeader(row: unknown[]) {
+  const header = normalizeRow(row)
+  return HEADER.map((fallback, index) => header[index] || fallback)
+}
+
 Deno.serve(async (req) => {
   const optionsResponse = handleOptions(req)
   if (optionsResponse) return optionsResponse
@@ -175,9 +186,8 @@ Deno.serve(async (req) => {
   try {
     const accessToken = await getGoogleAccessToken()
     const rows = await readRows(accessToken)
-    const bodyRows = rows.length > 0 && String(rows[0]?.[0] ?? '').trim().toLowerCase() === 'family'
-      ? rows.slice(1)
-      : rows
+    const header = rows.length > 0 && isHeaderRow(rows[0]) ? normalizeHeader(rows[0]) : HEADER
+    const bodyRows = rows.length > 0 && isHeaderRow(rows[0]) ? rows.slice(1) : rows
 
     const migratedRows: string[][] = []
     const skipped: Array<{ rowNumber: number; family: string; reason: string }> = []
@@ -208,7 +218,7 @@ Deno.serve(async (req) => {
       })
     })
 
-    const outputRows = [HEADER, ...migratedRows]
+    const outputRows = [header, ...migratedRows]
     if (!dryRun) await replaceRows(accessToken, outputRows)
 
     return json({
