@@ -735,8 +735,8 @@ onMounted(() => {
             <label class="form-label">Trip type</label>
             <div class="trip-type-group" role="group" aria-label="Trip type">
               <button type="button" :class="['trip-type-btn', { active: tripType === 'roundtrip' }]" @click="tripType = 'roundtrip'">Round trip</button>
-              <button type="button" :class="['trip-type-btn', { active: tripType === 'arriving' }]" @click="tripType = 'arriving'">Arriving only</button>
-              <button type="button" :class="['trip-type-btn', { active: tripType === 'departing' }]" @click="tripType = 'departing'">Departing only</button>
+              <button type="button" :class="['trip-type-btn', { active: tripType === 'arriving' }]" @click="tripType = 'arriving'">Arriving</button>
+              <button type="button" :class="['trip-type-btn', { active: tripType === 'departing' }]" @click="tripType = 'departing'">Departing</button>
             </div>
           </div>
 
