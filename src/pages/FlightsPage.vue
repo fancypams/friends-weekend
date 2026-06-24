@@ -554,6 +554,26 @@ function validateLegs(legs, label) {
   return null
 }
 
+function serializeLegs(legs) {
+  return legs.map((leg) => ({
+    flight: leg.flight.trim().toUpperCase(),
+    date: leg.date,
+    departTime: leg.depart,
+    arriveTime: leg.arrive,
+    origin: leg.origin.trim().toUpperCase(),
+    destination: leg.destination.trim().toUpperCase(),
+  }))
+}
+
+function createFlightPayload() {
+  return {
+    family: formFamily.value,
+    homeAirport: homeAirportCode.value,
+    arriving: tripType.value !== 'departing' ? serializeLegs(arrLegs.value) : [],
+    departing: tripType.value !== 'arriving' ? serializeLegs(depLegs.value) : [],
+  }
+}
+
 async function handleSubmit() {
   submitError.value = null
   successMsg.value = null
@@ -577,26 +597,7 @@ async function handleSubmit() {
     const res = await fetch(supabaseFunctionUrl('append-flight'), {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        family: formFamily.value,
-        homeAirport: homeAirportCode.value,
-        arriving: tripType.value !== 'departing' ? arrLegs.value.map((leg) => ({
-          flight: leg.flight.trim().toUpperCase(),
-          date: leg.date,
-          departTime: leg.depart,
-          arriveTime: leg.arrive,
-          origin: leg.origin.trim().toUpperCase(),
-          destination: leg.destination.trim().toUpperCase(),
-        })) : [],
-        departing: tripType.value !== 'arriving' ? depLegs.value.map((leg) => ({
-          flight: leg.flight.trim().toUpperCase(),
-          date: leg.date,
-          departTime: leg.depart,
-          arriveTime: leg.arrive,
-          origin: leg.origin.trim().toUpperCase(),
-          destination: leg.destination.trim().toUpperCase(),
-        })) : [],
-      }),
+      body: JSON.stringify(createFlightPayload()),
     })
 
     if (!res.ok) {
