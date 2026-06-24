@@ -629,13 +629,13 @@ onMounted(() => {
               <svg width="24" height="8" aria-hidden="true">
                 <line x1="0" y1="4" x2="24" y2="4" stroke="#5dab6c" stroke-width="2" stroke-dasharray="6 3" />
               </svg>
-              Arriving in Seattle
+              Heading to Friends Weekend
             </span>
             <span class="legend-item">
               <svg width="24" height="8" aria-hidden="true">
                 <line x1="0" y1="4" x2="24" y2="4" stroke="#c0614a" stroke-width="2" stroke-dasharray="6 3" />
               </svg>
-              Departing Seattle
+              Leaving Friends Weekend
             </span>
             <span class="legend-item">
               <svg width="16" height="16" aria-hidden="true">
@@ -746,7 +746,7 @@ onMounted(() => {
           <div v-if="tripType !== 'departing'" class="flight-section flight-section--arriving">
             <div class="flight-section-header">
               <span class="dir-icon">↓</span>
-              Arriving in Seattle
+              Heading to Friends Weekend
             </div>
             <div class="flight-section-body">
               <div v-for="(leg, i) in arrLegs" :key="i" class="leg-block">
@@ -811,7 +811,7 @@ onMounted(() => {
           <div v-if="tripType !== 'arriving'" class="flight-section flight-section--departing">
             <div class="flight-section-header">
               <span class="dir-icon">↑</span>
-              Departing Seattle
+              Leaving Friends Weekend
             </div>
             <div class="flight-section-body">
               <div v-for="(leg, i) in depLegs" :key="i" class="leg-block">
