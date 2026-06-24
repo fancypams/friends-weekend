@@ -200,7 +200,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .hero-header {
   position: relative;
-  z-index: 500;
   min-height: fit-content;
   display: flex;
   flex-direction: column;
@@ -392,7 +391,7 @@ onBeforeUnmount(() => {
 
 .hero-primary-nav {
   position: relative;
-  z-index: 6;
+  z-index: 500;
   max-width: var(--page-shell-max-width);
   margin: 12px auto 0;
   padding: 0 var(--page-shell-x);
