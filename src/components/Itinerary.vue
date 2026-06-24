@@ -153,6 +153,7 @@ onMounted(async () => {
           const origin = flightCellStr(row, 7).toUpperCase()
           const destination = flightCellStr(row, 8).toUpperCase()
           if (!family || !direction || !origin || !destination) return
+          if (origin !== 'SEA' && destination !== 'SEA') return
 
           const dateCell = row?.c?.[4]
           const departCell = row?.c?.[5]
