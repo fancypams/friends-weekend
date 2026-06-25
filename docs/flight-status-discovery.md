@@ -13,6 +13,7 @@
 - AeroDataBox is already integrated and should remain the first provider to investigate because credentials and request plumbing exist.
 - Probe result on June 25, 2026 confirmed the current AeroDataBox flight-number endpoint returns live operational fields. `AS554` returned `status: EnRoute`, revised departure time, and revised arrival time.
 - The same probe hit `429` rate limits after the first flight when querying 10 flight numbers in one burst. V1 must avoid burst fan-out and should use cache-first, low-concurrency fetching.
+- AeroDataBox flight-number lookups can return a current operational instance for the same flight number. Production status must only use a provider result when the requested route and local departure date match the saved itinerary row.
 - The current endpoint returns richer fields than the app stores, but `lookup-flight` discards them.
 - FlightAware AeroAPI is the fallback provider to compare if AeroDataBox cannot reliably return live operational fields. FlightAware describes AeroAPI as supporting current flight status, ETAs, last position, track, flight status, alerting, cancellations, diversions, and gate-related data, but it has separate pricing and rate limits.
 
@@ -129,6 +130,7 @@ Add a Supabase Edge Function `flight-status`:
 - Require active auth.
 - Accept `legs: [{ flightNumber, date, origin, destination }]`.
 - Deduplicate incoming legs server-side.
+- Require an exact route and local departure date match before displaying operational status.
 - Return one normalized status object per leg.
 - Use cached rows when `expires_at > now()`.
 - Fetch stale/missing rows from AeroDataBox sequentially or with concurrency `1`.

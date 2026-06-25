@@ -40,6 +40,7 @@ type CacheRow = {
   arrival_terminal: string | null
   arrival_gate: string | null
   baggage_claim: string | null
+  raw_payload: ProviderFlight | Record<string, unknown>
   fetched_at: string
   expires_at: string
 }
@@ -123,6 +124,22 @@ function parseProviderTime(time?: ProviderTime) {
   return parsed.toISOString()
 }
 
+function providerLocalDate(time?: ProviderTime) {
+  const local = String(time?.local ?? '').trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(local)) return local.slice(0, 10)
+  const utc = String(time?.utc ?? '').trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(utc)) return utc.slice(0, 10)
+  return ''
+}
+
+function providerFlightDate(flight?: ProviderFlight | Record<string, unknown> | null) {
+  const typed = flight as ProviderFlight | null
+  return providerLocalDate(typed?.departure?.scheduledTime)
+    || providerLocalDate(typed?.departure?.revisedTime)
+    || providerLocalDate(typed?.departure?.predictedTime)
+    || providerLocalDate(typed?.departure?.actualTime)
+}
+
 function minutesBetween(a?: string | null, b?: string | null) {
   if (!a || !b) return 0
   const left = new Date(a).getTime()
@@ -163,10 +180,7 @@ function chooseFlight(flights: ProviderFlight[], leg: RequestedLeg) {
     normalizeAirport(flight.departure?.airport?.iata) === leg.origin &&
     normalizeAirport(flight.arrival?.airport?.iata) === leg.destination &&
     String(flight.departure?.scheduledTime?.local ?? '').startsWith(leg.date)
-  ) ?? flights.find((flight) =>
-    normalizeAirport(flight.departure?.airport?.iata) === leg.origin &&
-    normalizeAirport(flight.arrival?.airport?.iata) === leg.destination
-  ) ?? flights[0]
+  ) ?? null
 }
 
 function normalizeProviderFlight(flight: ProviderFlight, leg: RequestedLeg) {
@@ -217,6 +231,45 @@ function rowKey(row: Pick<CacheRow, 'flight_number' | 'flight_date' | 'origin' |
   ].join('|')
 }
 
+function cacheRowMatchesRequestedLeg(row: CacheRow, leg: RequestedLeg) {
+  if (row.flight_number !== leg.flightNumber) return false
+  if (row.flight_date !== leg.date) return false
+  if (row.origin !== leg.origin) return false
+  if (row.destination !== leg.destination) return false
+
+  const providerDate = providerFlightDate(row.raw_payload)
+  if (providerDate && providerDate !== leg.date) return false
+
+  return true
+}
+
+function unavailableCacheRow(leg: RequestedLeg, reason: string) {
+  const now = new Date().toISOString()
+  return {
+    flight_number: leg.flightNumber,
+    flight_date: leg.date,
+    origin: leg.origin,
+    destination: leg.destination,
+    provider: PROVIDER,
+    status: null,
+    status_label: 'Status unavailable',
+    scheduled_departure_at: null,
+    estimated_departure_at: null,
+    actual_departure_at: null,
+    scheduled_arrival_at: null,
+    estimated_arrival_at: null,
+    actual_arrival_at: null,
+    departure_terminal: null,
+    departure_gate: null,
+    arrival_terminal: null,
+    arrival_gate: null,
+    baggage_claim: null,
+    raw_payload: { reason },
+    fetched_at: now,
+    expires_at: cacheTtl(leg.date, 'Status unavailable'),
+  }
+}
+
 function serializeStatus(leg: RequestedLeg, row: CacheRow | null, stale = false, error?: string) {
   return {
     key: leg.key,
@@ -246,14 +299,26 @@ function serializeStatus(leg: RequestedLeg, row: CacheRow | null, stale = false,
 }
 
 async function fetchProviderStatus(leg: RequestedLeg, apiKey: string) {
+  const headers = {
+    'X-RapidAPI-Key': apiKey,
+    'X-RapidAPI-Host': 'aerodatabox.p.rapidapi.com',
+  }
+  const dateAwareRes = await fetch(
+    `https://aerodatabox.p.rapidapi.com/flights/number/${encodeURIComponent(leg.flightNumber)}/${encodeURIComponent(leg.date)}`,
+    {
+      headers,
+    },
+  )
+
+  if (dateAwareRes.status === 429) return { rateLimited: true as const }
+  if (dateAwareRes.ok) {
+    const data = await dateAwareRes.json()
+    if (Array.isArray(data) && data.length > 0) return { flight: chooseFlight(data as ProviderFlight[], leg) }
+  }
+
   const res = await fetch(
     `https://aerodatabox.p.rapidapi.com/flights/number/${encodeURIComponent(leg.flightNumber)}`,
-    {
-      headers: {
-        'X-RapidAPI-Key': apiKey,
-        'X-RapidAPI-Host': 'aerodatabox.p.rapidapi.com',
-      },
-    },
+    { headers },
   )
 
   if (res.status === 429) return { rateLimited: true as const }
@@ -264,7 +329,8 @@ async function fetchProviderStatus(leg: RequestedLeg, apiKey: string) {
 
   const data = await res.json()
   if (!Array.isArray(data) || data.length === 0) return { notFound: true as const }
-  return { flight: chooseFlight(data as ProviderFlight[], leg) }
+  const flight = chooseFlight(data as ProviderFlight[], leg)
+  return flight ? { flight } : { notFound: true as const }
 }
 
 Deno.serve(async (req) => {
@@ -302,7 +368,10 @@ Deno.serve(async (req) => {
 
   const cacheByKey = new Map<string, CacheRow>()
   for (const row of cacheRows ?? []) {
-    cacheByKey.set(rowKey(row), row)
+    const leg = legs.find((candidate) => candidate.key === rowKey(row))
+    if (leg && cacheRowMatchesRequestedLeg(row, leg)) {
+      cacheByKey.set(rowKey(row), row)
+    }
   }
 
   const now = Date.now()
@@ -328,6 +397,16 @@ Deno.serve(async (req) => {
           rateLimited = true
           errorsByKey.set(legToRefresh.key, 'Provider rate limit reached')
         } else if ('notFound' in providerResult || !providerResult.flight) {
+          const unavailable = unavailableCacheRow(legToRefresh, 'No provider result matched the requested flight date and route')
+          const { data: upserted } = await auth.admin
+            .from('flight_status_cache')
+            .upsert(unavailable, {
+              onConflict: 'flight_number,flight_date,origin,destination,provider',
+            })
+            .select('*')
+            .single<CacheRow>()
+
+          if (upserted) cacheByKey.set(legToRefresh.key, upserted)
           errorsByKey.set(legToRefresh.key, 'Status unavailable from provider')
         } else {
           const normalized = normalizeProviderFlight(providerResult.flight, legToRefresh)
