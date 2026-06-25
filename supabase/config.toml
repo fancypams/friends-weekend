@@ -80,3 +80,6 @@ verify_jwt = false
 
 [functions.migrate-flight-travelers]
 verify_jwt = false
+
+[functions.flight-status]
+verify_jwt = false

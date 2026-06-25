@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import HeroHeader from '../components/HeroHeader.vue'
 import { supabase, supabaseAnonKey, bypassAuth, supabaseFunctionUrl } from '../lib/supabaseClient'
 
@@ -18,6 +18,11 @@ const tabs = [
 const loading = ref(true)
 const errorMsg = ref(null)
 const flights = ref([])
+const statusLoading = ref(false)
+const statusError = ref(null)
+const statusRateLimited = ref(false)
+const statusUpdatedAt = ref(null)
+let statusRefreshTimer = null
 
 // ── Airport coordinates ──
 const AIRPORTS = {
@@ -353,6 +358,15 @@ function flightGroupKey(f) {
   ].join('||')
 }
 
+function flightStatusKey(f) {
+  return [
+    String(f.flightNumber || '').trim().replace(/\s+/g, '').toUpperCase(),
+    f.dateSort || f.date,
+    String(f.origin || '').trim().toUpperCase(),
+    String(f.destination || '').trim().toUpperCase(),
+  ].join('|')
+}
+
 function groupFlightRows(rows) {
   const groups = new Map()
 
@@ -416,6 +430,99 @@ function formatDateLong(dateSort) {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
 }
 
+function formatStatusTime(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+function liveStatusLabel(f) {
+  return f.liveStatus?.statusLabel || 'Status unavailable'
+}
+
+function liveStatusTone(status) {
+  const label = String(status?.statusLabel || '').toLowerCase()
+  if (label.includes('cancel') || label.includes('divert')) return 'status-chip--critical'
+  if (label.includes('delay')) return 'status-chip--warning'
+  if (label.includes('depart') || label.includes('land') || label.includes('on time')) return 'status-chip--ok'
+  return 'status-chip--muted'
+}
+
+function liveStatusDetail(status) {
+  if (!status || status.unavailable) return ''
+  if (status.actualArrivalAt) return `Landed ${formatStatusTime(status.actualArrivalAt)}`
+  if (status.estimatedArrivalAt) return `Est. arrival ${formatStatusTime(status.estimatedArrivalAt)}`
+  if (status.actualDepartureAt) return `Departed ${formatStatusTime(status.actualDepartureAt)}`
+  if (status.estimatedDepartureAt) return `Est. depart ${formatStatusTime(status.estimatedDepartureAt)}`
+  return ''
+}
+
+function buildStatusLegs() {
+  const seen = new Set()
+  const legs = []
+
+  flights.value.forEach((flight) => {
+    const leg = {
+      flightNumber: String(flight.flightNumber || '').trim().replace(/\s+/g, '').toUpperCase(),
+      date: flight.dateSort,
+      origin: String(flight.origin || '').trim().toUpperCase(),
+      destination: String(flight.destination || '').trim().toUpperCase(),
+    }
+    if (!leg.flightNumber || !leg.date || !leg.origin || !leg.destination) return
+    const key = flightStatusKey(flight)
+    if (seen.has(key)) return
+    seen.add(key)
+    legs.push(leg)
+  })
+
+  return legs
+}
+
+function mergeFlightStatuses(statuses) {
+  const byKey = new Map((statuses || []).map((status) => [status.key, status]))
+  flights.value = flights.value.map((flight) => ({
+    ...flight,
+    liveStatus: byKey.get(flightStatusKey(flight)) || flight.liveStatus || null,
+  }))
+}
+
+async function loadFlightStatuses(options = {}) {
+  const legs = buildStatusLegs()
+  if (legs.length === 0) return
+
+  statusLoading.value = true
+  statusError.value = null
+
+  try {
+    const headers = await getAuthHeaders()
+    const res = await fetch(supabaseFunctionUrl('flight-status'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ legs, refresh: options.refresh === true }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(body.error || `Error ${res.status}`)
+
+    mergeFlightStatuses(body.statuses || [])
+    statusRateLimited.value = body.rateLimited === true
+    statusUpdatedAt.value = new Date()
+  } catch (err) {
+    statusError.value = err.message || 'Could not load live flight status'
+  }
+
+  statusLoading.value = false
+}
+
+function startStatusRefreshTimer() {
+  if (statusRefreshTimer) window.clearInterval(statusRefreshTimer)
+  statusRefreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible' && flights.value.length > 0) {
+      loadFlightStatuses()
+    }
+  }, 10 * 60 * 1000)
+}
+
 // ── Load data ──
 async function loadFlights() {
   loading.value = true
@@ -461,6 +568,7 @@ async function loadFlights() {
       })
       .filter((r) => r.family && r.direction && r.origin && r.destination)
     flights.value = groupFlightRows(flights.value)
+    loadFlightStatuses()
   } catch (err) {
     console.error('[FlightsPage] load', err)
     errorMsg.value = err.message || 'Could not load flight data'
@@ -737,6 +845,11 @@ onMounted(() => {
   loadFlights()
   loadMapData()
   loadFlightEntryContext()
+  startStatusRefreshTimer()
+})
+
+onBeforeUnmount(() => {
+  if (statusRefreshTimer) window.clearInterval(statusRefreshTimer)
 })
 </script>
 
@@ -761,6 +874,19 @@ onMounted(() => {
           @click="activeTab = tab.id"
         >
           {{ tab.label }}
+        </button>
+      </div>
+
+      <div v-if="activeTab !== 'add' && flights.length > 0" class="status-refresh-bar">
+        <div>
+          <span v-if="statusLoading">Updating live flight status…</span>
+          <span v-else-if="statusError">{{ statusError }}</span>
+          <span v-else-if="statusRateLimited">Live status is rate-limited; showing cached results.</span>
+          <span v-else-if="statusUpdatedAt">Live status updated {{ formatStatusTime(statusUpdatedAt) }}</span>
+          <span v-else>Live status will appear when available.</span>
+        </div>
+        <button type="button" class="status-refresh-btn" :disabled="statusLoading" @click="loadFlightStatuses({ refresh: true })">
+          Refresh status
         </button>
       </div>
 
@@ -876,8 +1002,13 @@ onMounted(() => {
                 <div class="timeline-card-body">
                   <div class="timeline-card-top">
                     <span class="timeline-family">{{ f.family }}</span>
-                    <span class="dir-badge" :class="isArriving(f) ? 'dir-badge--arriving' : 'dir-badge--departing'">
-                      {{ isArriving(f) ? '↓ Arriving' : '↑ Departing' }}
+                    <span class="timeline-badges">
+                      <span class="status-chip" :class="liveStatusTone(f.liveStatus)">
+                        {{ liveStatusLabel(f) }}
+                      </span>
+                      <span class="dir-badge" :class="isArriving(f) ? 'dir-badge--arriving' : 'dir-badge--departing'">
+                        {{ isArriving(f) ? '↓ Arriving' : '↑ Departing' }}
+                      </span>
                     </span>
                   </div>
                   <div class="timeline-travelers">{{ f.travelerDisplay }}</div>
@@ -886,6 +1017,10 @@ onMounted(() => {
                     <span>{{ f.flightNumber }}</span>
                     <span class="meta-sep">·</span>
                     <span>{{ f.departureTime }} → {{ f.arrivalTime }}</span>
+                    <template v-if="liveStatusDetail(f.liveStatus)">
+                      <span class="meta-sep">·</span>
+                      <span>{{ liveStatusDetail(f.liveStatus) }}</span>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -909,6 +1044,7 @@ onMounted(() => {
                 <th>Flight</th>
                 <th>Date</th>
                 <th>Time</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -926,6 +1062,14 @@ onMounted(() => {
                 <td>{{ f.flightNumber }}</td>
                 <td>{{ f.date }}</td>
                 <td class="time-cell">{{ f.departureTime }} → {{ f.arrivalTime }}</td>
+                <td class="status-cell">
+                  <span class="status-chip" :class="liveStatusTone(f.liveStatus)">
+                    {{ liveStatusLabel(f) }}
+                  </span>
+                  <span v-if="liveStatusDetail(f.liveStatus)" class="status-detail">
+                    {{ liveStatusDetail(f.liveStatus) }}
+                  </span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -1231,6 +1375,41 @@ onMounted(() => {
   padding: 52px 24px;
 }
 
+.status-refresh-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: -10px 0 24px;
+  padding: 10px 12px;
+  border: 1px solid var(--parchment, #e8e0d4);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.42);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--driftwood);
+}
+
+.status-refresh-btn {
+  border: 1px solid rgba(38, 48, 39, 0.24);
+  border-radius: 4px;
+  background: var(--bg-white, white);
+  color: var(--forest);
+  cursor: pointer;
+  font-family: var(--font-sign);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 7px 10px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-refresh-btn:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
 /* ── Arc Map ── */
 .map-card {
   background: #161d1a;
@@ -1356,6 +1535,40 @@ onMounted(() => {
   color: #a0513f;
 }
 
+.status-chip {
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-sign);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  padding: 3px 8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-chip--ok {
+  background: rgba(93, 171, 108, 0.14);
+  color: #3d7d4a;
+}
+
+.status-chip--warning {
+  background: rgba(198, 152, 50, 0.16);
+  color: #8b6420;
+}
+
+.status-chip--critical {
+  background: rgba(178, 73, 58, 0.14);
+  color: #a23d31;
+}
+
+.status-chip--muted {
+  background: rgba(116, 105, 86, 0.12);
+  color: var(--driftwood);
+}
+
 /* ── Timeline ── */
 .timeline {
   display: flex;
@@ -1413,6 +1626,14 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.timeline-badges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .timeline-family {
@@ -1521,6 +1742,18 @@ onMounted(() => {
 .time-cell {
   white-space: nowrap;
   color: var(--driftwood);
+}
+
+.status-cell {
+  min-width: 150px;
+}
+
+.status-detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--driftwood);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 /* ── Add Flight Form ── */
@@ -1927,6 +2160,29 @@ onMounted(() => {
   .tab-btn {
     font-size: 11px;
     padding: 10px 12px;
+  }
+
+  .status-refresh-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .status-refresh-btn {
+    width: 100%;
+  }
+
+  .timeline-card-top {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .timeline-badges {
+    justify-content: flex-start;
+  }
+
+  .timeline-meta {
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
 
   .flight-sections-row {
