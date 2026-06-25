@@ -62,6 +62,18 @@ function normalizeFlightNumber(value: unknown) {
   return normalizeText(value).replace(/\s+/g, '').toUpperCase()
 }
 
+function firstName(value: unknown) {
+  return normalizeText(value).split(/\s+/)[0]?.toLowerCase() || ''
+}
+
+function travelerMatchesProfile(row: FlightRow, profile: ProfileRow) {
+  const traveler = normalizeText(row.traveler).toLowerCase()
+  const displayName = normalizeText(profile.display_name).toLowerCase()
+  const displayFirstName = firstName(profile.display_name)
+  if (!traveler || !displayName) return false
+  return traveler === displayName || traveler === displayFirstName
+}
+
 function parseGvizCell(value: unknown) {
   const raw = String(value ?? '')
   if (!raw.startsWith('Date(')) return { display: raw.trim(), sort: raw.trim() }
@@ -165,14 +177,13 @@ async function fetchFlightRows() {
 }
 
 function pickDepartingJourney(rows: FlightRow[], profile: ProfileRow) {
-  const traveler = normalizeText(profile.display_name).toLowerCase()
   const family = normalizeText(profile.family).toLowerCase()
-  if (!traveler) return null
+  if (!normalizeText(profile.display_name)) return null
 
   const grouped = new Map<string, FlightRow[]>()
   for (const row of rows) {
     if (!row.direction.toLowerCase().includes('depart')) continue
-    if (row.traveler.toLowerCase() !== traveler) continue
+    if (!travelerMatchesProfile(row, profile)) continue
     if (family && row.family.toLowerCase() !== family) continue
 
     const key = [row.family, row.traveler, row.direction, row.homeAirport, row.dateSort].join('||')
