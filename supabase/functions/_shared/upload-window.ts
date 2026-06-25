@@ -176,28 +176,39 @@ async function fetchFlightRows() {
   ))
 }
 
-function pickDepartingJourney(rows: FlightRow[], profile: ProfileRow) {
+function candidateJourneys(rows: FlightRow[], profile: ProfileRow, directionNeedle: string) {
   const family = normalizeText(profile.family).toLowerCase()
-  if (!normalizeText(profile.display_name)) return null
+  if (!normalizeText(profile.display_name)) return []
 
   const grouped = new Map<string, FlightRow[]>()
   for (const row of rows) {
-    if (!row.direction.toLowerCase().includes('depart')) continue
+    if (!row.direction.toLowerCase().includes(directionNeedle)) continue
     if (!travelerMatchesProfile(row, profile)) continue
     if (family && row.family.toLowerCase() !== family) continue
 
-    const key = [row.family, row.traveler, row.direction, row.homeAirport, row.dateSort].join('||')
+    const key = [row.family, row.traveler, row.direction, row.homeAirport].join('||')
     grouped.set(key, [...(grouped.get(key) ?? []), row])
   }
 
-  const journeys = [...grouped.values()]
+  return [...grouped.values()]
     .map((legs) => legs.sort((a, b) => a.departSort.localeCompare(b.departSort)))
-    .filter((legs) => legs[0] && SEATTLE_ORIGINS.has(legs[0].origin))
     .sort((a, b) => {
       const left = `${a[0].dateSort}T${a[0].departSort}`
       const right = `${b[0].dateSort}T${b[0].departSort}`
       return left.localeCompare(right)
     })
+}
+
+function pickArrivingToSeattleJourney(rows: FlightRow[], profile: ProfileRow) {
+  const journeys = candidateJourneys(rows, profile, 'arriv')
+    .filter((legs) => legs[legs.length - 1] && SEATTLE_ORIGINS.has(legs[legs.length - 1].destination))
+
+  return journeys[0] ?? null
+}
+
+function pickDepartingHomeJourney(rows: FlightRow[], profile: ProfileRow) {
+  const journeys = candidateJourneys(rows, profile, 'depart')
+    .filter((legs) => legs[0] && SEATTLE_ORIGINS.has(legs[0].origin))
 
   return journeys[0] ?? null
 }
@@ -246,28 +257,32 @@ function buildUnavailable(reason: string): UploadWindow {
 
 export async function resolveUploadWindow(admin: SupabaseClient, profile: ProfileRow, now = new Date()): Promise<UploadWindow> {
   const rows = await fetchFlightRows()
-  const journey = pickDepartingJourney(rows, profile)
-  if (!journey) {
-    return buildUnavailable('No departing Seattle itinerary was found for this profile.')
+  const arrivingJourney = pickArrivingToSeattleJourney(rows, profile)
+  const departingJourney = pickDepartingHomeJourney(rows, profile)
+  if (!arrivingJourney) {
+    return buildUnavailable('No itinerary to Seattle was found for this profile.')
+  }
+  if (!departingJourney) {
+    return buildUnavailable('No return-home itinerary from Seattle was found for this profile.')
   }
 
-  const firstLeg = journey[0]
-  const finalLeg = journey[journey.length - 1]
-  const statuses = await loadStatuses(admin, journey)
-  const firstStatus = statuses.get(statusKey(firstLeg))
-  const finalStatus = statuses.get(statusKey(finalLeg))
+  const firstInboundLeg = arrivingJourney[0]
+  const finalHomeLeg = departingJourney[departingJourney.length - 1]
+  const statuses = await loadStatuses(admin, [...arrivingJourney, ...departingJourney])
+  const firstInboundStatus = statuses.get(statusKey(firstInboundLeg))
+  const finalHomeStatus = statuses.get(statusKey(finalHomeLeg))
 
-  const scheduledDepartureAt = firstStatus?.scheduled_departure_at
-    ?? parseSeattleLocalDateTime(firstLeg.dateSort, firstLeg.departSort)
+  const scheduledDepartureAt = firstInboundStatus?.scheduled_departure_at
+    ?? parseSeattleLocalDateTime(firstInboundLeg.dateSort, firstInboundLeg.departSort)
   const scheduledDeparture = parseIso(scheduledDepartureAt)
   if (!scheduledDeparture) {
-    return buildUnavailable('Scheduled departure time is unavailable for this itinerary.')
+    return buildUnavailable('Scheduled departure time is unavailable for the trip to Seattle.')
   }
 
   const opensAtDate = new Date(scheduledDeparture.getTime() - OPEN_BEFORE_DEPARTURE_MS)
-  const actualFinalArrival = parseIso(finalStatus?.actual_arrival_at)
-  const scheduledOrEstimatedArrival = parseIso(finalStatus?.estimated_arrival_at)
-    ?? parseIso(finalStatus?.scheduled_arrival_at)
+  const actualFinalArrival = parseIso(finalHomeStatus?.actual_arrival_at)
+  const scheduledOrEstimatedArrival = parseIso(finalHomeStatus?.estimated_arrival_at)
+    ?? parseIso(finalHomeStatus?.scheduled_arrival_at)
   const finalArrivalFallback = scheduledOrEstimatedArrival
     ? new Date(scheduledOrEstimatedArrival.getTime() + MISSING_ACTUAL_ARRIVAL_CAP_MS)
     : new Date(scheduledDeparture.getTime() + MISSING_ACTUAL_ARRIVAL_CAP_MS)
@@ -277,13 +292,13 @@ export async function resolveUploadWindow(admin: SupabaseClient, profile: Profil
 
   let reason = 'Uploads are open.'
   if (nowMs < opensAtDate.getTime()) {
-    reason = 'Uploads open 2 hours before your scheduled Seattle departure.'
+    reason = 'Uploads open 2 hours before your scheduled departure to Seattle.'
   } else if (nowMs > closesAtDate.getTime()) {
     reason = actualFinalArrival
-      ? 'Uploads closed 1 hour after your actual final arrival.'
+      ? 'Uploads closed 1 hour after you arrived at your home destination.'
       : 'Uploads closed after the safety window because actual arrival was unavailable.'
   } else if (!actualFinalArrival) {
-    reason = 'Uploads are open while we wait for actual final arrival.'
+    reason = 'Uploads are open while we wait for your actual arrival home.'
   }
 
   return {
@@ -294,7 +309,7 @@ export async function resolveUploadWindow(admin: SupabaseClient, profile: Profil
     scheduledDepartureAt: scheduledDeparture.toISOString(),
     actualFinalArrivalAt: actualFinalArrival?.toISOString() ?? null,
     finalArrivalFallbackAt: actualFinalArrival ? null : finalArrivalFallback.toISOString(),
-    finalDestination: finalLeg.destination,
+    finalDestination: finalHomeLeg.destination,
     source: actualFinalArrival
       ? 'flight_status_cache'
       : 'fallback_cap',

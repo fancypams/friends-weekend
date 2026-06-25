@@ -18,8 +18,8 @@ const emit = defineEmits(['uploadClick'])
     <div class="empty-icon" aria-hidden="true">⬆</div>
     <h3>Uploads locked for now</h3>
     <p>
-      Your upload window opens 2 hours before your scheduled Seattle departure and closes 1 hour after your actual
-      arrival at your final destination.
+      Your upload window opens 2 hours before you leave home for Seattle and closes 1 hour after you arrive back at
+      your home destination.
     </p>
     <button class="btn primary" type="button" :disabled="!uploadEnabled" @click="emit('uploadClick')">
       {{ uploadEnabled ? 'Upload First Media' : 'Uploads Locked' }}

@@ -1509,8 +1509,8 @@ onUnmounted(() => {
           <div>
             <h2 class="welcome-heading">Shared media</h2>
             <p class="welcome-blurb gallery-intro">
-              Uploads open for each traveler 2 hours before their scheduled departure from Seattle and close 1 hour
-              after their actual final arrival. New uploads reveal each night at 9:00 PM Pacific.
+              Uploads open 2 hours before each traveler leaves home for Seattle and close 1 hour after they arrive
+              back at their home destination. New uploads reveal each night at 9:00 PM Pacific.
             </p>
           </div>
         </header>
@@ -1529,8 +1529,8 @@ onUnmounted(() => {
             <div>
               <h2 class="welcome-heading">Shared media</h2>
               <p class="welcome-blurb gallery-intro">
-                Uploads open for each traveler 2 hours before their scheduled departure from Seattle and close 1 hour
-                after their actual final arrival. New uploads reveal each night at 9:00 PM Pacific.
+                Uploads open 2 hours before each traveler leaves home for Seattle and close 1 hour after they arrive
+                back at their home destination. New uploads reveal each night at 9:00 PM Pacific.
               </p>
               <p v-if="forceCensoredPreview" class="debug-note">
                 Preview mode is on: other people's uploads are intentionally shown as locked.
