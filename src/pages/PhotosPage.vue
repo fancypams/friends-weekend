@@ -99,7 +99,6 @@ const CAPTURE_WINDOW_LABEL = 'Jul 31-Aug 4, 2026 (Seattle time)'
 const PT_UTC_OFFSET_HOURS = 7 // Event is in summer (PDT, UTC-7)
 const PT_OFFSET_MS = PT_UTC_OFFSET_HOURS * 60 * 60 * 1000
 const DAILY_REVEAL_HOUR_PT = 21 // 9:00 PM PT
-const REVEAL_OPEN_WINDOW_END_HOUR_PT = 3 // 3:00 AM PT (exclusive)
 
 const isSignedIn = computed(() => bypassAuth || Boolean(session.value?.user))
 const isAdmin = computed(() => bypassAuth || profile.value?.role === 'admin')
@@ -459,11 +458,10 @@ function revealAtIsoFromUploadIso(uploadIso) {
   const day = ptShifted.getUTCDate()
   const hourPt = ptShifted.getUTCHours()
 
-  if (hourPt >= DAILY_REVEAL_HOUR_PT || hourPt < REVEAL_OPEN_WINDOW_END_HOUR_PT) {
-    return uploaded.toISOString()
-  }
-
   let revealUtcMs = Date.UTC(year, month, day, DAILY_REVEAL_HOUR_PT + PT_UTC_OFFSET_HOURS, 0, 0, 0)
+  if (hourPt >= DAILY_REVEAL_HOUR_PT) {
+    revealUtcMs += 24 * 60 * 60 * 1000
+  }
 
   return new Date(revealUtcMs).toISOString()
 }
