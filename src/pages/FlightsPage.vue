@@ -1591,13 +1591,14 @@ onBeforeUnmount(() => {
 }
 
 .timeline-time {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
+  align-items: baseline;
+  display: inline-grid;
+  grid-template-columns: max-content max-content max-content max-content;
   gap: 7px;
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 700;
+  width: fit-content;
 }
 
 .timeline-time--arriving {
@@ -2043,6 +2044,12 @@ onBeforeUnmount(() => {
   .timeline-card-top {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .timeline-time {
+    grid-template-columns: max-content max-content max-content max-content;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .flight-sections-row {
