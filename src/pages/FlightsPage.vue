@@ -784,7 +784,7 @@ function validateLegs(legs, section) {
   const errors = legs.map(() => ({}))
   const isArrivingSection = section === 'arriving'
   const label = isArrivingSection ? 'Arriving flight' : 'Departing flight'
-  const flightPattern = /^[A-Z0-9]{2}\s?\d{1,4}[A-Z]?$/
+  const flightPattern = /^[A-Z0-9]{2,3}\s?\d{1,4}[A-Z]?$/
   const airportPattern = /^[A-Z]{3}$/
   let firstError = ''
 
@@ -809,7 +809,7 @@ function validateLegs(legs, section) {
     }
 
     if (!flight) setError(index, 'flight', 'Flight number is required.')
-    else if (!flightPattern.test(flight)) setError(index, 'flight', 'Use a flight number like AA 412.')
+    else if (!flightPattern.test(flight)) setError(index, 'flight', 'Use a flight number like AA 412 or JBU263.')
 
     if (!leg.date) setError(index, 'date', 'Date is required.')
     if (!leg.depart) setError(index, 'depart', 'Departure time is required.')
@@ -1293,7 +1293,7 @@ onBeforeUnmount(() => {
                       v-model="leg.flight"
                       class="form-input"
                       :class="{ 'form-input--invalid': fieldError('departing', i, 'flight') }"
-                      placeholder="e.g. AA 413"
+                      placeholder="e.g. JBU263"
                       :aria-invalid="Boolean(fieldError('departing', i, 'flight'))"
                       @input="clearLegError('departing', i, 'flight')"
                       @blur="leg.flight = normalizeFlightInput(leg.flight); lookupLeg(leg)"
