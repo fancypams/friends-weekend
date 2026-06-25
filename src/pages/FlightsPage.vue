@@ -424,6 +424,10 @@ function getRoute(f) {
   return `${f.origin} → ${f.destination}`
 }
 
+function tripLegLabel(f) {
+  return isArriving(f) ? 'Heading to Seattle' : 'Leaving Seattle'
+}
+
 function formatDateLong(dateSort) {
   if (!dateSort || !dateSort.match(/^\d{4}-\d{2}-\d{2}$/)) return dateSort || '—'
   const d = new Date(dateSort + 'T12:00:00')
@@ -438,14 +442,15 @@ function formatStatusTime(value) {
 }
 
 function liveStatusLabel(f) {
-  return f.liveStatus?.statusLabel || 'Status unavailable'
+  const label = f.liveStatus?.statusLabel || 'Status unavailable'
+  return label === 'On time' ? 'Scheduled' : label
 }
 
 function liveStatusTone(status) {
   const label = String(status?.statusLabel || '').toLowerCase()
   if (label.includes('cancel') || label.includes('divert')) return 'status-chip--critical'
   if (label.includes('delay')) return 'status-chip--warning'
-  if (label.includes('depart') || label.includes('land') || label.includes('on time')) return 'status-chip--ok'
+  if (label.includes('depart') || label.includes('land') || label.includes('sched') || label.includes('on time')) return 'status-chip--ok'
   return 'status-chip--muted'
 }
 
@@ -1002,17 +1007,19 @@ onBeforeUnmount(() => {
                 <div class="timeline-card-body">
                   <div class="timeline-card-top">
                     <span class="timeline-family">{{ f.family }}</span>
-                    <span class="timeline-badges">
+                    <span class="flight-status-group">
+                      <span class="flight-status-label">Flight status</span>
                       <span class="status-chip" :class="liveStatusTone(f.liveStatus)">
                         {{ liveStatusLabel(f) }}
-                      </span>
-                      <span class="dir-badge" :class="isArriving(f) ? 'dir-badge--arriving' : 'dir-badge--departing'">
-                        {{ isArriving(f) ? '↓ Arriving' : '↑ Departing' }}
                       </span>
                     </span>
                   </div>
                   <div class="timeline-travelers">{{ f.travelerDisplay }}</div>
                   <div class="timeline-route">{{ getRoute(f) }}</div>
+                  <div class="trip-leg" :class="isArriving(f) ? 'trip-leg--arriving' : 'trip-leg--departing'">
+                    <span class="trip-leg-label">Trip leg</span>
+                    <span>{{ tripLegLabel(f) }}</span>
+                  </div>
                   <div class="timeline-meta">
                     <span>{{ f.flightNumber }}</span>
                     <span class="meta-sep">·</span>
@@ -1039,7 +1046,7 @@ onBeforeUnmount(() => {
             <thead>
               <tr>
                 <th>Person</th>
-                <th>Direction</th>
+                <th>Trip leg</th>
                 <th>Route</th>
                 <th>Flight</th>
                 <th>Date</th>
@@ -1054,8 +1061,8 @@ onBeforeUnmount(() => {
                   <span class="table-travelers">{{ f.travelerDisplay }}</span>
                 </td>
                 <td>
-                  <span class="dir-badge" :class="isArriving(f) ? 'dir-badge--arriving' : 'dir-badge--departing'">
-                    {{ isArriving(f) ? '↓ Arriving' : '↑ Departing' }}
+                  <span class="table-trip-leg" :class="isArriving(f) ? 'table-trip-leg--arriving' : 'table-trip-leg--departing'">
+                    {{ tripLegLabel(f) }}
                   </span>
                 </td>
                 <td class="route-cell">{{ getRoute(f) }}</td>
@@ -1513,28 +1520,6 @@ onBeforeUnmount(() => {
   color: rgba(255, 255, 255, 0.65);
 }
 
-/* ── Direction badges ── */
-.dir-badge {
-  font-family: var(--font-sign);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 3px 8px;
-  border-radius: 3px;
-  white-space: nowrap;
-}
-
-.dir-badge--arriving {
-  background: rgba(93, 171, 108, 0.15);
-  color: #3d8a4e;
-}
-
-.dir-badge--departing {
-  background: rgba(192, 97, 74, 0.12);
-  color: #a0513f;
-}
-
 .status-chip {
   border-radius: 3px;
   display: inline-flex;
@@ -1628,12 +1613,21 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.timeline-badges {
+.flight-status-group {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 8px;
   justify-content: flex-end;
-  gap: 6px;
+}
+
+.flight-status-label,
+.trip-leg-label {
+  color: var(--driftwood);
+  font-family: var(--font-sign);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .timeline-family {
@@ -1656,6 +1650,23 @@ onBeforeUnmount(() => {
   font-size: 17px;
   color: var(--forest);
   letter-spacing: -0.2px;
+}
+
+.trip-leg {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trip-leg--arriving {
+  color: #3d7d4a;
+}
+
+.trip-leg--departing {
+  color: #a0513f;
 }
 
 .timeline-meta {
@@ -1737,6 +1748,21 @@ onBeforeUnmount(() => {
   font-family: var(--font-display);
   font-size: 15px;
   white-space: nowrap;
+}
+
+.table-trip-leg {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.table-trip-leg--arriving {
+  color: #3d7d4a;
+}
+
+.table-trip-leg--departing {
+  color: #a0513f;
 }
 
 .time-cell {
@@ -2176,8 +2202,14 @@ onBeforeUnmount(() => {
     flex-direction: column;
   }
 
-  .timeline-badges {
+  .flight-status-group {
     justify-content: flex-start;
+  }
+
+  .trip-leg {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
   }
 
   .timeline-meta {

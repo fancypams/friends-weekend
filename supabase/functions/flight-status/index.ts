@@ -158,7 +158,7 @@ function labelStatus(status: string | undefined, scheduledDepartureAt: string | 
 
   const departureShift = minutesBetween(scheduledDepartureAt, estimatedDepartureAt)
   if (departureShift >= 15) return 'Delayed'
-  if (normalized.includes('sched') || normalized.includes('expected')) return 'On time'
+  if (normalized.includes('sched') || normalized.includes('expected')) return 'Scheduled'
   return status ? status : 'Status unavailable'
 }
 
