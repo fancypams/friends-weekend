@@ -22,6 +22,7 @@ const statusLoading = ref(false)
 const statusError = ref(null)
 const statusRateLimited = ref(false)
 const statusUpdatedAt = ref(null)
+const expandedJourneyKeys = ref(new Set())
 let statusRefreshTimer = null
 
 // ── Airport coordinates ──
@@ -415,6 +416,42 @@ const flightsByDate = computed(() => {
   return groups
 })
 
+const mobileFlightJourneys = computed(() => {
+  const groups = new Map()
+
+  sortedFlights.value.forEach((flight) => {
+    const key = [
+      flight.family,
+      flight.travelerDisplay,
+      flight.direction,
+      flight.homeAirport,
+      flight.dateSort,
+    ].join('||')
+    const existing = groups.get(key)
+
+    if (!existing) {
+      groups.set(key, {
+        key,
+        family: flight.family,
+        travelerDisplay: flight.travelerDisplay,
+        date: flight.date,
+        dateSort: flight.dateSort,
+        direction: flight.direction,
+        homeAirport: flight.homeAirport,
+        flights: [flight],
+      })
+      return
+    }
+
+    existing.flights.push(flight)
+  })
+
+  return [...groups.values()].map((journey) => ({
+    ...journey,
+    flights: journey.flights.sort((a, b) => a.departSort.localeCompare(b.departSort)),
+  }))
+})
+
 // ── Helpers ──
 function isArriving(f) {
   return f.direction.toLowerCase().includes('arriv')
@@ -426,6 +463,40 @@ function getRoute(f) {
 
 function tripLegLabel(f) {
   return isArriving(f) ? 'Heading to Seattle' : 'Leaving Seattle'
+}
+
+function journeyTripLegLabel(journey) {
+  return tripLegLabel(journey.flights[0])
+}
+
+function journeyRoute(journey) {
+  if (!journey.flights.length) return ''
+  const airports = [journey.flights[0].origin]
+  journey.flights.forEach((flight) => {
+    if (airports[airports.length - 1] !== flight.destination) airports.push(flight.destination)
+  })
+  return airports.join(' → ')
+}
+
+function journeyStatus(journey) {
+  const priority = ['Cancelled', 'Diverted', 'Delayed', 'Departed', 'Landed', 'Scheduled']
+  const statuses = journey.flights.map((flight) => liveStatusLabel(flight))
+  return priority.find((label) => statuses.includes(label)) || statuses[0] || 'Status unavailable'
+}
+
+function journeyStatusTone(journey) {
+  return liveStatusTone({ statusLabel: journeyStatus(journey) })
+}
+
+function isJourneyExpanded(key) {
+  return expandedJourneyKeys.value.has(key)
+}
+
+function toggleJourneyDetails(key) {
+  const next = new Set(expandedJourneyKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedJourneyKeys.value = next
 }
 
 function formatDateLong(dateSort) {
@@ -461,6 +532,19 @@ function liveStatusDetail(status) {
   if (status.actualDepartureAt) return `Departed ${formatStatusTime(status.actualDepartureAt)}`
   if (status.estimatedDepartureAt) return `Est. depart ${formatStatusTime(status.estimatedDepartureAt)}`
   return ''
+}
+
+function flightOperationalDetails(flight) {
+  const status = flight.liveStatus
+  if (!status || status.unavailable) return []
+  const details = []
+  if (liveStatusDetail(status)) details.push(liveStatusDetail(status))
+  if (status.departureTerminal) details.push(`Dep terminal ${status.departureTerminal}`)
+  if (status.departureGate) details.push(`Dep gate ${status.departureGate}`)
+  if (status.arrivalTerminal) details.push(`Arr terminal ${status.arrivalTerminal}`)
+  if (status.arrivalGate) details.push(`Arr gate ${status.arrivalGate}`)
+  if (status.baggageClaim) details.push(`Baggage ${status.baggageClaim}`)
+  return details
 }
 
 function buildStatusLegs() {
@@ -1041,45 +1125,114 @@ onBeforeUnmount(() => {
         <div v-if="loading" class="state-msg"><div class="spinner"></div>Loading…</div>
         <div v-else-if="errorMsg" class="state-msg error">{{ errorMsg }}</div>
         <div v-else-if="flights.length === 0" class="empty-state">No flights added yet. Use + Add flight to get started.</div>
-        <div v-else class="table-wrap">
-          <table class="flights-table">
-            <thead>
-              <tr>
-                <th>Person</th>
-                <th>Trip leg</th>
-                <th>Route</th>
-                <th>Flight</th>
-                <th>Date</th>
-                <th>Time</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="f in sortedFlights" :key="flightGroupKey(f)">
-                <td>
-                  <span class="table-family">{{ f.family }}</span>
-                  <span class="table-travelers">{{ f.travelerDisplay }}</span>
-                </td>
-                <td>
-                  <span class="table-trip-leg" :class="isArriving(f) ? 'table-trip-leg--arriving' : 'table-trip-leg--departing'">
-                    {{ tripLegLabel(f) }}
-                  </span>
-                </td>
-                <td class="route-cell">{{ getRoute(f) }}</td>
-                <td>{{ f.flightNumber }}</td>
-                <td>{{ f.date }}</td>
-                <td class="time-cell">{{ f.departureTime }} → {{ f.arrivalTime }}</td>
-                <td class="status-cell">
-                  <span class="status-chip" :class="liveStatusTone(f.liveStatus)">
-                    {{ liveStatusLabel(f) }}
-                  </span>
-                  <span v-if="liveStatusDetail(f.liveStatus)" class="status-detail">
-                    {{ liveStatusDetail(f.liveStatus) }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-else>
+          <div class="table-wrap table-wrap--desktop">
+            <table class="flights-table">
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th>Trip leg</th>
+                  <th>Route</th>
+                  <th>Flight</th>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="f in sortedFlights" :key="flightGroupKey(f)">
+                  <td>
+                    <span class="table-family">{{ f.family }}</span>
+                    <span class="table-travelers">{{ f.travelerDisplay }}</span>
+                  </td>
+                  <td>
+                    <span class="table-trip-leg" :class="isArriving(f) ? 'table-trip-leg--arriving' : 'table-trip-leg--departing'">
+                      {{ tripLegLabel(f) }}
+                    </span>
+                  </td>
+                  <td class="route-cell">{{ getRoute(f) }}</td>
+                  <td>{{ f.flightNumber }}</td>
+                  <td>{{ f.date }}</td>
+                  <td class="time-cell">{{ f.departureTime }} → {{ f.arrivalTime }}</td>
+                  <td class="status-cell">
+                    <span class="status-chip" :class="liveStatusTone(f.liveStatus)">
+                      {{ liveStatusLabel(f) }}
+                    </span>
+                    <span v-if="liveStatusDetail(f.liveStatus)" class="status-detail">
+                      {{ liveStatusDetail(f.liveStatus) }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mobile-journeys" aria-label="Flight journeys">
+            <article
+              v-for="journey in mobileFlightJourneys"
+              :key="journey.key"
+              class="mobile-journey-card"
+              :class="isArriving(journey.flights[0]) ? 'mobile-journey-card--arriving' : 'mobile-journey-card--departing'"
+            >
+              <div class="mobile-journey-top">
+                <div>
+                  <div class="mobile-family">{{ journey.family }}</div>
+                  <div class="mobile-travelers">{{ journey.travelerDisplay }}</div>
+                </div>
+                <span class="status-chip" :class="journeyStatusTone(journey)">
+                  {{ journeyStatus(journey) }}
+                </span>
+              </div>
+
+              <div class="mobile-route">{{ journeyRoute(journey) }}</div>
+
+              <div class="mobile-trip-leg" :class="isArriving(journey.flights[0]) ? 'mobile-trip-leg--arriving' : 'mobile-trip-leg--departing'">
+                <span class="mobile-field-label">Trip leg</span>
+                <span>{{ journeyTripLegLabel(journey) }}</span>
+              </div>
+
+              <div class="mobile-leg-list">
+                <div v-for="flight in journey.flights" :key="flightGroupKey(flight)" class="mobile-leg">
+                  <div class="mobile-leg-main">
+                    <span class="mobile-flight-number">{{ flight.flightNumber }}</span>
+                    <span>{{ getRoute(flight) }}</span>
+                  </div>
+                  <div class="mobile-leg-meta">
+                    <span>{{ flight.date }}</span>
+                    <span class="meta-sep">·</span>
+                    <span>{{ flight.departureTime }} → {{ flight.arrivalTime }}</span>
+                  </div>
+                  <div class="mobile-leg-status">
+                    <span class="status-chip" :class="liveStatusTone(flight.liveStatus)">
+                      {{ liveStatusLabel(flight) }}
+                    </span>
+                    <span v-if="liveStatusDetail(flight.liveStatus)" class="mobile-status-detail">
+                      {{ liveStatusDetail(flight.liveStatus) }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="mobile-details-toggle"
+                :aria-expanded="isJourneyExpanded(journey.key)"
+                @click="toggleJourneyDetails(journey.key)"
+              >
+                {{ isJourneyExpanded(journey.key) ? 'Hide details' : 'Details' }}
+              </button>
+
+              <div v-if="isJourneyExpanded(journey.key)" class="mobile-details">
+                <div v-for="flight in journey.flights" :key="`${flightGroupKey(flight)}-details`" class="mobile-detail-leg">
+                  <div class="mobile-detail-title">{{ flight.flightNumber }} · {{ getRoute(flight) }}</div>
+                  <div v-if="flightOperationalDetails(flight).length" class="mobile-detail-list">
+                    <span v-for="detail in flightOperationalDetails(flight)" :key="detail">{{ detail }}</span>
+                  </div>
+                  <div v-else class="mobile-detail-empty">No gate or terminal details yet.</div>
+                </div>
+              </div>
+            </article>
+          </div>
         </div>
       </div>
 
@@ -1415,6 +1568,10 @@ onBeforeUnmount(() => {
 .status-refresh-btn:disabled {
   cursor: wait;
   opacity: 0.58;
+}
+
+.mobile-journeys {
+  display: none;
 }
 
 /* ── Arc Map ── */
@@ -1780,6 +1937,194 @@ onBeforeUnmount(() => {
   color: var(--driftwood);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.mobile-journey-card {
+  background: var(--bg-white, white);
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.07);
+  overflow: hidden;
+  padding: 14px 14px 12px;
+  position: relative;
+}
+
+.mobile-journey-card::before {
+  bottom: 0;
+  content: '';
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 4px;
+}
+
+.mobile-journey-card--arriving::before {
+  background: var(--green-primary);
+}
+
+.mobile-journey-card--departing::before {
+  background: var(--terracotta);
+}
+
+.mobile-journey-top {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.mobile-family {
+  color: var(--forest);
+  font-family: var(--font-sign);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mobile-travelers {
+  color: var(--driftwood);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.mobile-route {
+  color: var(--forest);
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1.12;
+  margin-top: 13px;
+  overflow-wrap: anywhere;
+}
+
+.mobile-trip-leg {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 9px;
+}
+
+.mobile-trip-leg--arriving {
+  color: #3d7d4a;
+}
+
+.mobile-trip-leg--departing {
+  color: #a0513f;
+}
+
+.mobile-field-label {
+  color: var(--driftwood);
+  font-family: var(--font-sign);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.mobile-leg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.mobile-leg {
+  border-top: 1px solid var(--parchment, #e8e0d4);
+  padding-top: 10px;
+}
+
+.mobile-leg-main {
+  align-items: baseline;
+  color: var(--forest);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mobile-flight-number {
+  font-family: var(--font-sign);
+  letter-spacing: 0.06em;
+}
+
+.mobile-leg-meta {
+  align-items: center;
+  color: var(--driftwood);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 5px;
+  margin-top: 3px;
+}
+
+.mobile-leg-status {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.mobile-status-detail {
+  color: var(--driftwood);
+  font-size: 12px;
+}
+
+.mobile-details-toggle {
+  align-items: center;
+  background: transparent;
+  border: 1px solid rgba(38, 48, 39, 0.18);
+  border-radius: 4px;
+  color: var(--forest);
+  cursor: pointer;
+  display: flex;
+  font-family: var(--font-sign);
+  font-size: 10px;
+  font-weight: 700;
+  justify-content: center;
+  letter-spacing: 0.08em;
+  margin-top: 13px;
+  min-height: 38px;
+  padding: 8px 10px;
+  text-transform: uppercase;
+  width: 100%;
+}
+
+.mobile-details {
+  background: rgba(232, 224, 212, 0.28);
+  border-radius: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+}
+
+.mobile-detail-title {
+  color: var(--forest);
+  font-family: var(--font-sign);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mobile-detail-list {
+  color: var(--driftwood);
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  gap: 3px;
+  margin-top: 5px;
+}
+
+.mobile-detail-empty {
+  color: var(--driftwood);
+  font-size: 12px;
+  margin-top: 5px;
 }
 
 /* ── Add Flight Form ── */
@@ -2189,12 +2534,17 @@ onBeforeUnmount(() => {
   }
 
   .status-refresh-bar {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+    gap: 10px;
+    margin-bottom: 18px;
+    padding: 8px 10px;
   }
 
   .status-refresh-btn {
-    width: 100%;
+    min-height: 34px;
+    padding-inline: 9px;
+    width: auto;
   }
 
   .timeline-card-top {
@@ -2215,6 +2565,16 @@ onBeforeUnmount(() => {
   .timeline-meta {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+
+  .table-wrap--desktop {
+    display: none;
+  }
+
+  .mobile-journeys {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
 
   .flight-sections-row {
