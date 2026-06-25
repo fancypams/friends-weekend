@@ -129,6 +129,7 @@ const uploadWindowClosesMs = computed(() => {
   return Number.isFinite(parsed) ? parsed : null
 })
 const uploadsUnlocked = computed(() => {
+  if (uploadWindowUnavailable.value) return true
   const opens = uploadWindowOpensMs.value
   const closes = uploadWindowClosesMs.value
   if (!opens || !closes) return false
@@ -136,7 +137,7 @@ const uploadsUnlocked = computed(() => {
 })
 const uploadLockedNotice = computed(() => {
   if (uploadWindowLoading.value && !uploadWindow.value) return 'Checking your upload window…'
-  if (uploadWindowUnavailable.value) return 'Upload window is unavailable. Try again in a moment.'
+  if (uploadWindowUnavailable.value) return 'Upload window will be checked when you upload.'
   if (uploadWindowError.value) return 'Upload window is unavailable. Try again in a moment.'
 
   const opens = uploadWindowOpensMs.value
