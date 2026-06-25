@@ -71,8 +71,8 @@ function toggleJourneyDetails(key) {
             <span class="status-chip" :class="liveStatusTone(f.liveStatus)">
               {{ liveStatusLabel(f) }}
             </span>
-            <span v-if="liveStatusDetail(f.liveStatus)" class="status-detail">
-              {{ liveStatusDetail(f.liveStatus) }}
+            <span v-if="liveStatusDetail(f.liveStatus, f)" class="status-detail">
+              {{ liveStatusDetail(f.liveStatus, f) }}
             </span>
           </td>
         </tr>
@@ -119,8 +119,8 @@ function toggleJourneyDetails(key) {
             <span class="status-chip" :class="liveStatusTone(flight.liveStatus)">
               {{ liveStatusLabel(flight) }}
             </span>
-            <span v-if="liveStatusDetail(flight.liveStatus)" class="mobile-status-detail">
-              {{ liveStatusDetail(flight.liveStatus) }}
+            <span v-if="liveStatusDetail(flight.liveStatus, flight)" class="mobile-status-detail">
+              {{ liveStatusDetail(flight.liveStatus, flight) }}
             </span>
           </div>
         </div>
