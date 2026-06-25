@@ -615,6 +615,7 @@ const depLegs = ref([createLeg()])
 const submitting = ref(false)
 const submitError = ref(null)
 const successMsg = ref(null)
+const validationErrors = ref({ arriving: [], departing: [] })
 
 const sameItineraryLabel = computed(() => {
   const name = spouseFirstName.value || 'your spouse'
@@ -644,18 +645,22 @@ const homeAirportCode = computed(() => {
 
 function addArrLeg() {
   arrLegs.value.push(createLeg())
+  validationErrors.value.arriving.push({})
 }
 
 function removeArrLeg(index) {
   if (arrLegs.value.length > 1) arrLegs.value.splice(index, 1)
+  validationErrors.value.arriving.splice(index, 1)
 }
 
 function addDepLeg() {
   depLegs.value.push(createLeg())
+  validationErrors.value.departing.push({})
 }
 
 function removeDepLeg(index) {
   if (depLegs.value.length > 1) depLegs.value.splice(index, 1)
+  validationErrors.value.departing.splice(index, 1)
 }
 
 async function lookupLeg(leg) {
@@ -703,6 +708,7 @@ function resetForm() {
   tripType.value = 'roundtrip'
   arrLegs.value = [createLeg()]
   depLegs.value = [createLeg()]
+  validationErrors.value = { arriving: [], departing: [] }
 }
 
 async function loadProfileContextFallback() {
@@ -759,16 +765,77 @@ async function loadFlightEntryContext() {
   entryContextLoading.value = false
 }
 
-function validateLegs(legs, label) {
-  for (const leg of legs) {
-    if (!leg.origin.trim()) return `${label} origin is required`
-    if (!leg.destination.trim()) return `${label} destination is required`
-    if (!leg.flight.trim()) return `${label} flight number is required`
-    if (!leg.date) return `${label} date is required`
-    if (!leg.depart) return `${label} departure time is required`
-    if (!leg.arrive) return `${label} arrival time is required`
+function clearLegError(section, index, field) {
+  const sectionErrors = validationErrors.value[section]
+  const row = sectionErrors?.[index]
+  if (!row || !row[field]) return
+  row[field] = ''
+}
+
+function fieldError(section, index, field) {
+  return validationErrors.value[section]?.[index]?.[field] || ''
+}
+
+function normalizeFlightInput(value) {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, ' ')
+}
+
+function validateLegs(legs, section) {
+  const errors = legs.map(() => ({}))
+  const isArrivingSection = section === 'arriving'
+  const label = isArrivingSection ? 'Arriving flight' : 'Departing flight'
+  const flightPattern = /^[A-Z0-9]{2}\s?\d{1,4}[A-Z]?$/
+  const airportPattern = /^[A-Z]{3}$/
+  let firstError = ''
+
+  const setError = (index, field, message) => {
+    if (!errors[index][field]) errors[index][field] = message
+    if (!firstError) firstError = `${label} ${index + 1}: ${message}`
   }
-  return null
+
+  legs.forEach((leg, index) => {
+    const origin = leg.origin.trim().toUpperCase()
+    const destination = leg.destination.trim().toUpperCase()
+    const flight = normalizeFlightInput(leg.flight)
+
+    if (!origin) setError(index, 'origin', 'Origin is required.')
+    else if (!airportPattern.test(origin)) setError(index, 'origin', 'Use a 3-letter airport code.')
+
+    if (!destination) setError(index, 'destination', 'Destination is required.')
+    else if (!airportPattern.test(destination)) setError(index, 'destination', 'Use a 3-letter airport code.')
+
+    if (origin && destination && origin === destination) {
+      setError(index, 'destination', 'Destination must differ from origin.')
+    }
+
+    if (!flight) setError(index, 'flight', 'Flight number is required.')
+    else if (!flightPattern.test(flight)) setError(index, 'flight', 'Use a flight number like AA 412.')
+
+    if (!leg.date) setError(index, 'date', 'Date is required.')
+    if (!leg.depart) setError(index, 'depart', 'Departure time is required.')
+    if (!leg.arrive) setError(index, 'arrive', 'Arrival time is required.')
+
+    const previousDestination = legs[index - 1]?.destination?.trim().toUpperCase()
+    if (index > 0 && previousDestination && origin && previousDestination !== origin) {
+      setError(index, 'origin', `Connection must start at ${previousDestination}.`)
+    }
+  })
+
+  const firstLeg = legs[0]
+  const finalLeg = legs[legs.length - 1]
+  if (isArrivingSection) {
+    const finalDestination = finalLeg?.destination?.trim().toUpperCase()
+    if (finalDestination && finalDestination !== 'SEA') {
+      setError(legs.length - 1, 'destination', 'The trip to Friends Weekend must end at SEA.')
+    }
+  } else {
+    const firstOrigin = firstLeg?.origin?.trim().toUpperCase()
+    if (firstOrigin && firstOrigin !== 'SEA') {
+      setError(0, 'origin', 'The return-home trip must start at SEA.')
+    }
+  }
+
+  return { errors, firstError }
 }
 
 function serializeLegs(legs) {
@@ -800,13 +867,20 @@ async function handleSubmit() {
   if (!travelerName.value) { submitError.value = 'No traveler name found for your profile'; return }
   if (!homeAirportCode.value) { submitError.value = 'Home airport is required'; return }
 
+  const nextValidationErrors = { arriving: [], departing: [] }
   if (tripType.value !== 'departing') {
-    const arrError = validateLegs(arrLegs.value, 'Arriving flight')
-    if (arrError) { submitError.value = arrError; return }
+    const result = validateLegs(arrLegs.value, 'arriving')
+    nextValidationErrors.arriving = result.errors
+    if (result.firstError) submitError.value = result.firstError
   }
   if (tripType.value !== 'arriving') {
-    const depError = validateLegs(depLegs.value, 'Departing flight')
-    if (depError) { submitError.value = depError; return }
+    const result = validateLegs(depLegs.value, 'departing')
+    nextValidationErrors.departing = result.errors
+    if (!submitError.value && result.firstError) submitError.value = result.firstError
+  }
+  validationErrors.value = nextValidationErrors
+  if (submitError.value) {
+    return
   }
 
   submitting.value = true
@@ -1086,40 +1160,79 @@ onBeforeUnmount(() => {
                     <input
                       v-model="leg.origin"
                       class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('arriving', i, 'origin') }"
                       placeholder="e.g. BOS"
                       maxlength="4"
-                      @input="leg.origin = leg.origin.toUpperCase()"
+                      :aria-invalid="Boolean(fieldError('arriving', i, 'origin'))"
+                      @input="leg.origin = leg.origin.toUpperCase(); clearLegError('arriving', i, 'origin')"
                     />
+                    <small v-if="fieldError('arriving', i, 'origin')" class="field-error">{{ fieldError('arriving', i, 'origin') }}</small>
                   </div>
                   <div class="form-group">
                     <label class="form-label">Destination</label>
                     <input
                       v-model="leg.destination"
                       class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('arriving', i, 'destination') }"
                       placeholder="e.g. SEA"
                       maxlength="4"
-                      @input="leg.destination = leg.destination.toUpperCase()"
+                      :aria-invalid="Boolean(fieldError('arriving', i, 'destination'))"
+                      @input="leg.destination = leg.destination.toUpperCase(); clearLegError('arriving', i, 'destination')"
                     />
+                    <small v-if="fieldError('arriving', i, 'destination')" class="field-error">{{ fieldError('arriving', i, 'destination') }}</small>
                   </div>
                 </div>
                 <div class="form-row">
                   <div class="form-group">
                     <label class="form-label">Flight number</label>
-                    <input v-model="leg.flight" class="form-input" placeholder="e.g. AA 412" @blur="lookupLeg(leg)" />
+                    <input
+                      v-model="leg.flight"
+                      class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('arriving', i, 'flight') }"
+                      placeholder="e.g. AA 412"
+                      :aria-invalid="Boolean(fieldError('arriving', i, 'flight'))"
+                      @input="clearLegError('arriving', i, 'flight')"
+                      @blur="leg.flight = normalizeFlightInput(leg.flight); lookupLeg(leg)"
+                    />
+                    <small v-if="fieldError('arriving', i, 'flight')" class="field-error">{{ fieldError('arriving', i, 'flight') }}</small>
                   </div>
                   <div class="form-group">
                     <label class="form-label">Date</label>
-                    <input v-model="leg.date" type="date" class="form-input" />
+                    <input
+                      v-model="leg.date"
+                      type="date"
+                      class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('arriving', i, 'date') }"
+                      :aria-invalid="Boolean(fieldError('arriving', i, 'date'))"
+                      @input="clearLegError('arriving', i, 'date')"
+                    />
+                    <small v-if="fieldError('arriving', i, 'date')" class="field-error">{{ fieldError('arriving', i, 'date') }}</small>
                   </div>
                 </div>
                 <div class="form-row">
                   <div class="form-group">
                     <label class="form-label">Departs</label>
-                    <input v-model="leg.depart" type="time" class="form-input" />
+                    <input
+                      v-model="leg.depart"
+                      type="time"
+                      class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('arriving', i, 'depart') }"
+                      :aria-invalid="Boolean(fieldError('arriving', i, 'depart'))"
+                      @input="clearLegError('arriving', i, 'depart')"
+                    />
+                    <small v-if="fieldError('arriving', i, 'depart')" class="field-error">{{ fieldError('arriving', i, 'depart') }}</small>
                   </div>
                   <div class="form-group">
                     <label class="form-label">Arrives</label>
-                    <input v-model="leg.arrive" type="time" class="form-input" />
+                    <input
+                      v-model="leg.arrive"
+                      type="time"
+                      class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('arriving', i, 'arrive') }"
+                      :aria-invalid="Boolean(fieldError('arriving', i, 'arrive'))"
+                      @input="clearLegError('arriving', i, 'arrive')"
+                    />
+                    <small v-if="fieldError('arriving', i, 'arrive')" class="field-error">{{ fieldError('arriving', i, 'arrive') }}</small>
                   </div>
                 </div>
                 <div v-if="leg.looking" class="lookup-status lookup-status--loading">
@@ -1151,40 +1264,79 @@ onBeforeUnmount(() => {
                     <input
                       v-model="leg.origin"
                       class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('departing', i, 'origin') }"
                       placeholder="e.g. SEA"
                       maxlength="4"
-                      @input="leg.origin = leg.origin.toUpperCase()"
+                      :aria-invalid="Boolean(fieldError('departing', i, 'origin'))"
+                      @input="leg.origin = leg.origin.toUpperCase(); clearLegError('departing', i, 'origin')"
                     />
+                    <small v-if="fieldError('departing', i, 'origin')" class="field-error">{{ fieldError('departing', i, 'origin') }}</small>
                   </div>
                   <div class="form-group">
                     <label class="form-label">Destination</label>
                     <input
                       v-model="leg.destination"
                       class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('departing', i, 'destination') }"
                       placeholder="e.g. BOS"
                       maxlength="4"
-                      @input="leg.destination = leg.destination.toUpperCase()"
+                      :aria-invalid="Boolean(fieldError('departing', i, 'destination'))"
+                      @input="leg.destination = leg.destination.toUpperCase(); clearLegError('departing', i, 'destination')"
                     />
+                    <small v-if="fieldError('departing', i, 'destination')" class="field-error">{{ fieldError('departing', i, 'destination') }}</small>
                   </div>
                 </div>
                 <div class="form-row">
                   <div class="form-group">
                     <label class="form-label">Flight number</label>
-                    <input v-model="leg.flight" class="form-input" placeholder="e.g. AA 413" @blur="lookupLeg(leg)" />
+                    <input
+                      v-model="leg.flight"
+                      class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('departing', i, 'flight') }"
+                      placeholder="e.g. AA 413"
+                      :aria-invalid="Boolean(fieldError('departing', i, 'flight'))"
+                      @input="clearLegError('departing', i, 'flight')"
+                      @blur="leg.flight = normalizeFlightInput(leg.flight); lookupLeg(leg)"
+                    />
+                    <small v-if="fieldError('departing', i, 'flight')" class="field-error">{{ fieldError('departing', i, 'flight') }}</small>
                   </div>
                   <div class="form-group">
                     <label class="form-label">Date</label>
-                    <input v-model="leg.date" type="date" class="form-input" />
+                    <input
+                      v-model="leg.date"
+                      type="date"
+                      class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('departing', i, 'date') }"
+                      :aria-invalid="Boolean(fieldError('departing', i, 'date'))"
+                      @input="clearLegError('departing', i, 'date')"
+                    />
+                    <small v-if="fieldError('departing', i, 'date')" class="field-error">{{ fieldError('departing', i, 'date') }}</small>
                   </div>
                 </div>
                 <div class="form-row">
                   <div class="form-group">
                     <label class="form-label">Departs</label>
-                    <input v-model="leg.depart" type="time" class="form-input" />
+                    <input
+                      v-model="leg.depart"
+                      type="time"
+                      class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('departing', i, 'depart') }"
+                      :aria-invalid="Boolean(fieldError('departing', i, 'depart'))"
+                      @input="clearLegError('departing', i, 'depart')"
+                    />
+                    <small v-if="fieldError('departing', i, 'depart')" class="field-error">{{ fieldError('departing', i, 'depart') }}</small>
                   </div>
                   <div class="form-group">
                     <label class="form-label">Arrives</label>
-                    <input v-model="leg.arrive" type="time" class="form-input" />
+                    <input
+                      v-model="leg.arrive"
+                      type="time"
+                      class="form-input"
+                      :class="{ 'form-input--invalid': fieldError('departing', i, 'arrive') }"
+                      :aria-invalid="Boolean(fieldError('departing', i, 'arrive'))"
+                      @input="clearLegError('departing', i, 'arrive')"
+                    />
+                    <small v-if="fieldError('departing', i, 'arrive')" class="field-error">{{ fieldError('departing', i, 'arrive') }}</small>
                   </div>
                 </div>
                 <div v-if="leg.looking" class="lookup-status lookup-status--loading">
@@ -1901,6 +2053,17 @@ onBeforeUnmount(() => {
 .form-select:focus {
   outline: none;
   border-color: var(--terracotta);
+}
+
+.form-input--invalid {
+  border-color: var(--red-error, #b94a3c);
+  background: #fff7f5;
+}
+
+.field-error {
+  color: var(--red-error, #b94a3c);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .form-input[type="date"],

@@ -191,7 +191,11 @@ function candidateJourneys(rows: FlightRow[], profile: ProfileRow, directionNeed
   }
 
   return [...grouped.values()]
-    .map((legs) => legs.sort((a, b) => a.departSort.localeCompare(b.departSort)))
+    .map((legs) => legs.sort((a, b) => {
+      const left = `${a.dateSort}T${a.departSort}`
+      const right = `${b.dateSort}T${b.departSort}`
+      return left.localeCompare(right)
+    }))
     .sort((a, b) => {
       const left = `${a[0].dateSort}T${a[0].departSort}`
       const right = `${b[0].dateSort}T${b[0].departSort}`
