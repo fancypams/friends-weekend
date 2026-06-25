@@ -53,6 +53,30 @@ export function liveStatusDetail(status) {
   return ''
 }
 
+export function liveArrivalTime(flight) {
+  const status = flight.liveStatus
+  return formatStatusTime(status?.actualArrivalAt)
+    || formatStatusTime(status?.estimatedArrivalAt)
+    || flight.arrivalTime
+}
+
+export function liveDepartureTime(flight) {
+  const status = flight.liveStatus
+  return formatStatusTime(status?.actualDepartureAt)
+    || formatStatusTime(status?.estimatedDepartureAt)
+    || flight.departureTime
+}
+
+export function liveArrivalSort(flight) {
+  const status = flight.liveStatus
+  return status?.actualArrivalAt || status?.estimatedArrivalAt || flight.arriveSort
+}
+
+export function liveDepartureSort(flight) {
+  const status = flight.liveStatus
+  return status?.actualDepartureAt || status?.estimatedDepartureAt || flight.departSort
+}
+
 export function flightOperationalDetails(flight) {
   const status = flight.liveStatus
   if (!status || status.unavailable) return []
