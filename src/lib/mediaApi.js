@@ -22,6 +22,10 @@ export function createUploadTicket(payload) {
   })
 }
 
+export function fetchUploadWindow() {
+  return callFunction('upload-window')
+}
+
 export async function uploadWithSignedTicket(ticket, file) {
   if (!supabase) throw new Error('Supabase is not configured')
 

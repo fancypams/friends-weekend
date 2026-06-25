@@ -16,9 +16,10 @@ const emit = defineEmits(['uploadClick'])
 <template>
   <section class="empty-state">
     <div class="empty-icon" aria-hidden="true">⬆</div>
-    <h3>Gallery locked for now</h3>
+    <h3>Uploads locked for now</h3>
     <p>
-      Upload photos and videos taken during July 31-Aug 4. The shared gallery opens when the trip starts on July 31.
+      Your upload window opens 2 hours before your scheduled Seattle departure and closes 1 hour after your actual
+      arrival at your final destination.
     </p>
     <button class="btn primary" type="button" :disabled="!uploadEnabled" @click="emit('uploadClick')">
       {{ uploadEnabled ? 'Upload First Media' : 'Uploads Locked' }}

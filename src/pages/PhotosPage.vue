@@ -12,6 +12,7 @@ import {
   createUploadTicket,
   fetchGalleryFeed,
   fetchProfile,
+  fetchUploadWindow,
   removeMedia,
   signMediaUrl,
   uploadWithSignedTicket,
@@ -29,6 +30,10 @@ const galleryError = ref('')
 const queueItems = ref([])
 const uploadBusy = ref(false)
 const uploadError = ref('')
+const uploadWindow = ref(null)
+const uploadWindowLoading = ref(false)
+const uploadWindowError = ref('')
+const uploadWindowUnavailable = ref(false)
 const nativePickerRef = ref(null)
 const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const isMobileViewport = ref(typeof window !== 'undefined' ? window.innerWidth <= 699 : false)
@@ -71,6 +76,7 @@ let authHeartbeatTimer = null
 let authHeartbeatInFlight = false
 let embargoSweepTimer = null
 let uploadUnlockTimer = null
+let lastUploadWindowFetchMs = 0
 const INITIAL_PREVIEW_COUNT = 6
 const LOAD_MORE_PREVIEW_COUNT = 2
 const INITIAL_PAGE_SIZE = 12
@@ -86,10 +92,10 @@ const SIGNED_URL_CACHE_STORAGE_KEY = 'friends-weekend:signed-url-cache:v1'
 const SIGNED_URL_CACHE_MAX_ENTRIES = 500
 const UPLOAD_DB_NAME = 'friends-weekend-upload-queue'
 const UPLOAD_DB_STORE = 'queue_items'
+const UPLOAD_WINDOW_REFRESH_MS = 5 * 60 * 1000
 const CAPTURE_WINDOW_START_MS = Date.parse('2026-07-31T07:00:00.000Z') // Jul 31 00:00 Seattle (PDT)
 const CAPTURE_WINDOW_END_MS = Date.parse('2026-08-05T06:59:59.999Z') // Aug 4 23:59:59 Seattle (PDT)
 const CAPTURE_WINDOW_LABEL = 'Jul 31-Aug 4, 2026 (Seattle time)'
-const UPLOAD_UNLOCK_LABEL = 'Jul 31, 2026 (Seattle time)'
 const PT_UTC_OFFSET_HOURS = 7 // Event is in summer (PDT, UTC-7)
 const PT_OFFSET_MS = PT_UTC_OFFSET_HOURS * 60 * 60 * 1000
 const DAILY_REVEAL_HOUR_PT = 21 // 9:00 PM PT
@@ -115,8 +121,32 @@ const uploadStatusMessage = computed(() => {
   return ''
 })
 const showUploadStatus = computed(() => Boolean(uploadStatusMessage.value))
-const uploadsUnlocked = computed(() => uploadClockMs.value >= CAPTURE_WINDOW_START_MS)
-const uploadLockedNotice = computed(() => `Uploads open on ${UPLOAD_UNLOCK_LABEL}.`)
+const uploadWindowOpensMs = computed(() => {
+  const parsed = Date.parse(uploadWindow.value?.opensAt || '')
+  return Number.isFinite(parsed) ? parsed : null
+})
+const uploadWindowClosesMs = computed(() => {
+  const parsed = Date.parse(uploadWindow.value?.closesAt || '')
+  return Number.isFinite(parsed) ? parsed : null
+})
+const uploadsUnlocked = computed(() => {
+  const opens = uploadWindowOpensMs.value
+  const closes = uploadWindowClosesMs.value
+  if (!opens || !closes) return false
+  return uploadClockMs.value >= opens && uploadClockMs.value <= closes
+})
+const uploadLockedNotice = computed(() => {
+  if (uploadWindowLoading.value && !uploadWindow.value) return 'Checking your upload window…'
+  if (uploadWindowUnavailable.value) return 'Upload window is unavailable. Try again in a moment.'
+  if (uploadWindowError.value) return 'Upload window is unavailable. Try again in a moment.'
+
+  const opens = uploadWindowOpensMs.value
+  const closes = uploadWindowClosesMs.value
+  if (!opens || !closes) return uploadWindow.value?.reason || 'Uploads are not available for this profile.'
+  if (uploadClockMs.value < opens) return `Uploads open ${formatUploadWindowDate(opens)}.`
+  if (uploadClockMs.value > closes) return `Uploads closed ${formatUploadWindowDate(closes)}.`
+  return uploadWindow.value?.reason || 'Uploads are open.'
+})
 const uploadFailureDetails = computed(() => {
   const seen = new Set()
   const details = []
@@ -342,6 +372,9 @@ async function restoreUploadQueue() {
 function onOnline() {
   isOnline.value = true
   uploadError.value = ''
+  if (canLoadApp.value) {
+    void loadUploadWindow()
+  }
   const hasQueued = queueItems.value.some((item) => item.status === 'queued')
   if (hasQueued && canLoadApp.value && !uploadBusy.value) {
     void startUpload()
@@ -360,12 +393,52 @@ function onResize() {
 
 function tickUploadClock() {
   uploadClockMs.value = Date.now()
+  if (
+    canLoadApp.value
+    && !uploadWindowLoading.value
+    && uploadClockMs.value - lastUploadWindowFetchMs >= UPLOAD_WINDOW_REFRESH_MS
+  ) {
+    void loadUploadWindow()
+  }
+}
+
+function formatUploadWindowDate(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'soon'
+  return date.toLocaleString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 function ensureUploadsUnlocked() {
   if (uploadsUnlocked.value) return true
   uploadError.value = uploadLockedNotice.value
   return false
+}
+
+async function loadUploadWindow() {
+  if (!canLoadApp.value) return
+  uploadWindowLoading.value = true
+  uploadWindowError.value = ''
+  uploadWindowUnavailable.value = false
+
+  try {
+    const payload = await withSessionRetry(() => fetchUploadWindow())
+    uploadWindow.value = payload
+    lastUploadWindowFetchMs = Date.now()
+  } catch (err) {
+    if (await maybeReauth(err)) return
+    uploadWindow.value = null
+    uploadWindowError.value = normalizeUploadError(err)
+    uploadWindowUnavailable.value = true
+    lastUploadWindowFetchMs = Date.now()
+  } finally {
+    uploadWindowLoading.value = false
+  }
 }
 
 function hydrateDebugFlagsFromUrl() {
@@ -493,6 +566,7 @@ function stopEmbargoSweep() {
 function onVisibilityChange() {
   if (typeof document === 'undefined' || document.hidden) return
   void keepSessionWarm()
+  void loadUploadWindow()
 }
 
 function canRemove(item) {
@@ -928,6 +1002,10 @@ async function hydrateSession(nextSession) {
 
   if (!nextSession?.user) {
     profile.value = null
+    uploadWindow.value = null
+    uploadWindowError.value = ''
+    uploadWindowUnavailable.value = false
+    lastUploadWindowFetchMs = 0
     galleryItems.value = []
     galleryCursor.value = null
     authLoading.value = false
@@ -940,6 +1018,7 @@ async function hydrateSession(nextSession) {
       role: 'member',
       email: nextSession.user.email || '',
     }
+    await loadUploadWindow()
     await loadGallery({ reset: true })
   } catch (err) {
     if (!(await maybeReauth(err))) galleryError.value = normalizeUploadError(err)
@@ -1249,6 +1328,9 @@ async function startUpload() {
         await removeQueueItemFromStorage(row.id)
         break
       }
+      if (Number(err?.status || 0) === 403) {
+        void loadUploadWindow()
+      }
       row.error = isOnline.value ? normalizeUploadError(err) : 'Waiting for internet connection.'
       if (row.status === 'queued') {
         await persistQueueItem(row)
@@ -1345,6 +1427,7 @@ onMounted(async () => {
     session.value = { user: { id: '00000000-0000-0000-0000-000000000000', email: 'group@friends-weekend.local' } }
     profile.value = { role: 'admin', email: 'group@friends-weekend.local' }
     authLoading.value = false
+    await loadUploadWindow()
     await loadGallery({ reset: true })
     startLiveSync()
     if (isOnline.value && queueItems.value.some((item) => item.status === 'queued')) {
@@ -1426,8 +1509,8 @@ onUnmounted(() => {
           <div>
             <h2 class="welcome-heading">Shared media</h2>
             <p class="welcome-blurb gallery-intro">
-              Upload photos and videos from the trip dates only (July 31-Aug 4). The gallery unlocks when the trip
-              starts, then new uploads reveal each night at 9:00 PM Pacific.
+              Uploads open for each traveler 2 hours before their scheduled departure from Seattle and close 1 hour
+              after their actual final arrival. New uploads reveal each night at 9:00 PM Pacific.
             </p>
           </div>
         </header>
@@ -1446,8 +1529,8 @@ onUnmounted(() => {
             <div>
               <h2 class="welcome-heading">Shared media</h2>
               <p class="welcome-blurb gallery-intro">
-                Upload photos and videos from the trip dates only (July 31-Aug 4). The gallery unlocks when the trip
-                starts, then new uploads reveal each night at 9:00 PM Pacific.
+                Uploads open for each traveler 2 hours before their scheduled departure from Seattle and close 1 hour
+                after their actual final arrival. New uploads reveal each night at 9:00 PM Pacific.
               </p>
               <p v-if="forceCensoredPreview" class="debug-note">
                 Preview mode is on: other people's uploads are intentionally shown as locked.

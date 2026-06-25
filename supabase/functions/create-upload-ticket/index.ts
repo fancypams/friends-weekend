@@ -1,5 +1,5 @@
 import { handleOptions } from '../_shared/cors.ts'
-import { assertMethod, badRequest, conflict, serverError, json } from '../_shared/http.ts'
+import { assertMethod, badRequest, conflict, forbidden, serverError, json } from '../_shared/http.ts'
 import { requireAuth } from '../_shared/auth.ts'
 import {
   ALLOWED_MIME,
@@ -10,6 +10,7 @@ import {
 } from '../_shared/constants.ts'
 import { buildOriginalPath, mediaTypeFromMime } from '../_shared/media-paths.ts'
 import { audit } from '../_shared/audit.ts'
+import { resolveUploadWindow } from '../_shared/upload-window.ts'
 
 type CreateUploadTicketBody = {
   filename?: string
@@ -26,6 +27,18 @@ Deno.serve(async (req) => {
 
   const auth = await requireAuth(req, { requireActive: true })
   if (!auth.ok) return auth.response
+
+  let uploadWindow
+  try {
+    uploadWindow = await resolveUploadWindow(auth.admin, auth.profile)
+  } catch (err) {
+    console.error('[create-upload-ticket] upload window', err)
+    return serverError('Failed to resolve upload window', err instanceof Error ? err.message : String(err))
+  }
+
+  if (!uploadWindow.allowed) {
+    return forbidden(uploadWindow.reason)
+  }
 
   let payload: CreateUploadTicketBody
   try {
