@@ -4,14 +4,13 @@ import HeroHeader from '../components/HeroHeader.vue'
 import FlightTableViews from '../components/flights/FlightTableViews.vue'
 import { supabase, supabaseAnonKey, bypassAuth, supabaseFunctionUrl } from '../lib/supabaseClient'
 import {
+  buildFlightJourneys,
   flightGroupKey,
   formatStatusTime,
-  getRoute,
   isArriving,
-  liveStatusDetail,
-  liveStatusLabel,
-  liveStatusTone,
-  tripLegLabel,
+  journeyRoute,
+  journeyStatus,
+  journeyStatusTone,
 } from '../lib/flightDisplay'
 
 const SHEET_ID = '10Vb7iKPjZC2THOPiMf50MtKMM5K3LQ70VTVdBCuSdlo'
@@ -399,15 +398,43 @@ const sortedFlights = computed(() =>
   })
 )
 
-const flightsByDate = computed(() => {
+const timelineJourneysByDate = computed(() => {
+  const journeys = buildFlightJourneys(sortedFlights.value)
+    .map((journey) => {
+      const arriving = isArriving(journey.flights[0])
+      const seattleFlight = arriving
+        ? journey.flights[journey.flights.length - 1]
+        : journey.flights[0]
+      const timeSort = arriving ? seattleFlight.arriveSort : seattleFlight.departSort
+      const timeDisplay = arriving ? seattleFlight.arrivalTime : seattleFlight.departureTime
+
+      return {
+        ...journey,
+        arriving,
+        seattleFlight,
+        date: seattleFlight.date,
+        dateSort: seattleFlight.dateSort,
+        timeSort,
+        timeDisplay,
+        timeLabel: arriving ? 'Arrives in Seattle' : 'Leaves Seattle',
+        route: journeyRoute(journey),
+        status: journeyStatus(journey),
+      }
+    })
+    .sort((a, b) => {
+      if (a.dateSort !== b.dateSort) return a.dateSort.localeCompare(b.dateSort)
+      if (a.timeSort !== b.timeSort) return a.timeSort.localeCompare(b.timeSort)
+      return a.travelerDisplay.localeCompare(b.travelerDisplay)
+    })
+
   const groups = []
   let last = null
-  for (const f of sortedFlights.value) {
-    if (f.dateSort !== last) {
-      last = f.dateSort
-      groups.push({ dateDisplay: f.date, dateSort: f.dateSort, flights: [] })
+  for (const journey of journeys) {
+    if (journey.dateSort !== last) {
+      last = journey.dateSort
+      groups.push({ dateDisplay: journey.date, dateSort: journey.dateSort, journeys: [] })
     }
-    groups[groups.length - 1].flights.push(f)
+    groups[groups.length - 1].journeys.push(journey)
   }
   return groups
 })
@@ -418,6 +445,10 @@ function formatDateLong(dateSort) {
   if (!dateSort || !dateSort.match(/^\d{4}-\d{2}-\d{2}$/)) return dateSort || '—'
   const d = new Date(dateSort + 'T12:00:00')
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+}
+
+function shouldShowTimelineStatus(journey) {
+  return !['Scheduled', 'Status unavailable'].includes(journey.status)
 }
 
 function buildStatusLegs() {
@@ -951,40 +982,33 @@ onBeforeUnmount(() => {
         <div v-else-if="errorMsg" class="state-msg error">{{ errorMsg }}</div>
         <div v-else-if="flights.length === 0" class="empty-state">No flights added yet. Use + Add flight to get started.</div>
         <div v-else class="timeline">
-          <div v-for="group in flightsByDate" :key="group.dateSort" class="timeline-day">
+          <div v-for="group in timelineJourneysByDate" :key="group.dateSort" class="timeline-day">
             <div class="timeline-date-header">{{ formatDateLong(group.dateSort) }}</div>
             <div class="timeline-flights">
               <div
-                v-for="f in group.flights"
-                :key="flightGroupKey(f)"
+                v-for="journey in group.journeys"
+                :key="journey.key"
                 class="timeline-card"
-                :class="isArriving(f) ? 'timeline-card--arriving' : 'timeline-card--departing'"
+                :class="journey.arriving ? 'timeline-card--arriving' : 'timeline-card--departing'"
               >
                 <div class="timeline-card-accent" />
                 <div class="timeline-card-body">
                   <div class="timeline-card-top">
-                    <span class="timeline-family">{{ f.family }}</span>
-                    <span class="flight-status-group">
-                      <span class="flight-status-label">Flight status</span>
-                      <span class="status-chip" :class="liveStatusTone(f.liveStatus)">
-                        {{ liveStatusLabel(f) }}
+                    <div>
+                      <div class="timeline-travelers">{{ journey.travelerDisplay }}</div>
+                      <div class="timeline-family">{{ journey.family }}</div>
+                    </div>
+                    <span v-if="shouldShowTimelineStatus(journey)" class="flight-status-group">
+                      <span class="flight-status-label">Status</span>
+                      <span class="status-chip" :class="journeyStatusTone(journey)">
+                        {{ journey.status }}
                       </span>
                     </span>
                   </div>
-                  <div class="timeline-travelers">{{ f.travelerDisplay }}</div>
-                  <div class="timeline-route">{{ getRoute(f) }}</div>
-                  <div class="trip-leg" :class="isArriving(f) ? 'trip-leg--arriving' : 'trip-leg--departing'">
-                    <span class="trip-leg-label">Trip leg</span>
-                    <span>{{ tripLegLabel(f) }}</span>
-                  </div>
-                  <div class="timeline-meta">
-                    <span>{{ f.flightNumber }}</span>
-                    <span class="meta-sep">·</span>
-                    <span>{{ f.departureTime }} → {{ f.arrivalTime }}</span>
-                    <template v-if="liveStatusDetail(f.liveStatus)">
-                      <span class="meta-sep">·</span>
-                      <span>{{ liveStatusDetail(f.liveStatus) }}</span>
-                    </template>
+                  <div class="timeline-route">{{ journey.route }}</div>
+                  <div class="timeline-time" :class="journey.arriving ? 'timeline-time--arriving' : 'timeline-time--departing'">
+                    <span class="timeline-time-label">{{ journey.timeLabel }}</span>
+                    <span class="timeline-time-value">{{ journey.timeDisplay }}</span>
                   </div>
                 </div>
               </div>
@@ -1517,11 +1541,11 @@ onBeforeUnmount(() => {
 }
 
 .timeline-card-body {
-  padding: 14px 16px;
+  padding: 15px 16px;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 7px;
 }
 
 .timeline-card-top {
@@ -1539,7 +1563,7 @@ onBeforeUnmount(() => {
 }
 
 .flight-status-label,
-.trip-leg-label {
+.timeline-time-label {
   color: var(--driftwood);
   font-family: var(--font-sign);
   font-size: 9px;
@@ -1550,50 +1574,50 @@ onBeforeUnmount(() => {
 
 .timeline-family {
   font-family: var(--font-sign);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--forest);
+  color: var(--driftwood);
+  margin-top: 3px;
 }
 
 .timeline-travelers {
   font-family: var(--font-sans);
-  font-size: 12px;
-  color: var(--driftwood);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--forest);
+  line-height: 1.18;
 }
 
 .timeline-route {
   font-family: var(--font-display);
-  font-size: 17px;
+  font-size: 20px;
   color: var(--forest);
   letter-spacing: -0.2px;
+  overflow-wrap: anywhere;
 }
 
-.trip-leg {
+.timeline-time {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 7px;
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
 }
 
-.trip-leg--arriving {
+.timeline-time--arriving {
   color: #3d7d4a;
 }
 
-.trip-leg--departing {
+.timeline-time--departing {
   color: #a0513f;
 }
 
-.timeline-meta {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  color: var(--driftwood);
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.timeline-time-value {
+  font-size: 16px;
 }
 
 .meta-sep {
@@ -2027,17 +2051,6 @@ onBeforeUnmount(() => {
 
   .flight-status-group {
     justify-content: flex-start;
-  }
-
-  .trip-leg {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .timeline-meta {
-    align-items: flex-start;
-    flex-wrap: wrap;
   }
 
   .flight-sections-row {

@@ -66,7 +66,7 @@ export function flightOperationalDetails(flight) {
   return details
 }
 
-export function buildMobileFlightJourneys(flights) {
+export function buildFlightJourneys(flights) {
   const groups = new Map()
 
   flights.forEach((flight) => {
@@ -100,6 +100,10 @@ export function buildMobileFlightJourneys(flights) {
     ...journey,
     flights: journey.flights.sort((a, b) => a.departSort.localeCompare(b.departSort)),
   }))
+}
+
+export function buildMobileFlightJourneys(flights) {
+  return buildFlightJourneys(flights)
 }
 
 export function journeyTripLegLabel(journey) {
