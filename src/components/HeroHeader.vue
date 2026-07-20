@@ -11,7 +11,7 @@ defineProps({
   },
 })
 
-const targetMs = Date.parse('2026-07-23T00:00:00')
+const targetMs = Date.parse('2026-07-31T18:00:00-07:00')
 const nowMs = ref(Date.now())
 let tickTimer = null
 
