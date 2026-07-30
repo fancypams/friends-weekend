@@ -16,6 +16,7 @@ import {
   removeMedia,
   signMediaUrl,
   uploadWithSignedTicket,
+  uploadWithSignedUploadUrl,
 } from '../lib/mediaApi'
 
 const session = ref(null)
@@ -256,6 +257,90 @@ function normalizedMime(file) {
   const fromName = guessMimeFromName(file?.name)
   const mime = fromType || fromName
   return allowedMime.has(mime) ? mime : ''
+}
+
+function isHeicMime(mimeType) {
+  return mimeType === 'image/heic' || mimeType === 'image/heif'
+}
+
+function jpegFilenameFrom(name) {
+  const base = String(name || 'upload')
+    .trim()
+    .replace(/\.[^.]+$/, '')
+    || 'upload'
+  return `${base}.jpg`
+}
+
+function canvasToJpegBlob(canvas, quality = 0.9) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob)
+      } else {
+        reject(new Error('Could not create JPEG derivative'))
+      }
+    }, 'image/jpeg', quality)
+  })
+}
+
+function loadImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(img)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('This browser could not read the HEIC image.'))
+    }
+    img.src = url
+  })
+}
+
+async function convertHeicFileToJpeg(file) {
+  if (typeof document === 'undefined') {
+    throw new Error('HEIC conversion is unavailable in this browser.')
+  }
+
+  let source = null
+  try {
+    if (typeof createImageBitmap === 'function') {
+      source = await createImageBitmap(file)
+    }
+  } catch {
+    source = null
+  }
+
+  if (!source) {
+    source = await loadImageElement(file)
+  }
+
+  const width = Number(source.width || source.naturalWidth || 0)
+  const height = Number(source.height || source.naturalHeight || 0)
+  if (!width || !height) {
+    source.close?.()
+    throw new Error('Could not read HEIC image dimensions.')
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context) {
+    source.close?.()
+    throw new Error('HEIC conversion is unavailable in this browser.')
+  }
+
+  context.drawImage(source, 0, 0, width, height)
+  source.close?.()
+
+  const blob = await canvasToJpegBlob(canvas)
+  return new File([blob], jpegFilenameFrom(file.name), {
+    type: 'image/jpeg',
+    lastModified: Number(file.lastModified || Date.now()),
+  })
 }
 
 function sleep(ms) {
@@ -1291,8 +1376,17 @@ async function startUpload() {
     queuedSignaturesInRun.add(signature)
 
     try {
+      let jpegDerivative = null
+      if (isHeicMime(mimeType)) {
+        row.status = 'requesting-ticket'
+        row.progress = 15
+        row.error = ''
+        await persistQueueItem(row)
+        jpegDerivative = await convertHeicFileToJpeg(file)
+      }
+
       row.status = 'requesting-ticket'
-      row.progress = 10
+      row.progress = jpegDerivative ? 25 : 10
       row.error = ''
       await persistQueueItem(row)
 
@@ -1306,6 +1400,17 @@ async function startUpload() {
       row.progress = 35
       await persistQueueItem(row)
       await withRetries(() => uploadWithSignedTicket(ticket, file))
+
+      if (jpegDerivative) {
+        if (!ticket.derivedUploads?.processed || !ticket.derivedUploads?.thumb) {
+          throw new Error('HEIC derivative upload target is missing')
+        }
+
+        row.progress = 60
+        await persistQueueItem(row)
+        await withRetries(() => uploadWithSignedUploadUrl(ticket.derivedUploads.processed, jpegDerivative))
+        await withRetries(() => uploadWithSignedUploadUrl(ticket.derivedUploads.thumb, jpegDerivative))
+      }
 
       row.status = 'processing'
       row.progress = 80
@@ -1654,7 +1759,7 @@ onUnmounted(() => {
       class="native-upload-input"
       type="file"
       multiple
-      accept="image/*,video/mp4,video/quicktime"
+      accept="image/*,.heic,.heif,video/mp4,video/quicktime"
       @change="handleNativePickerChange"
     />
   </div>

@@ -1,11 +1,10 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
-import heicConvert from 'npm:heic-convert@2.1.0'
 import { BUCKET } from './constants.ts'
 import { buildDerivedPaths } from './media-paths.ts'
 import { audit } from './audit.ts'
 
-// This v1 processor publishes secure derivatives. HEIC/HEIF images are converted
-// to JPEG derivatives; other supported media uses copy-through publication.
+// This v1 processor publishes secure derivatives. HEIC/HEIF JPEG derivatives are
+// uploaded by the browser; other supported media uses copy-through publication.
 export type MediaAssetRow = {
   id: string
   owner_id: string
@@ -22,14 +21,17 @@ function isHeicImage(asset: Pick<MediaAssetRow, 'media_type' | 'mime_type'>) {
   return asset.media_type === 'image' && (asset.mime_type === 'image/heic' || asset.mime_type === 'image/heif')
 }
 
-async function convertHeicToJpeg(bytes: Uint8Array) {
-  const output = await heicConvert({
-    buffer: bytes,
-    format: 'JPEG',
-    quality: 0.9,
-  })
+async function storageObjectExists(admin: SupabaseClient, path: string) {
+  const { data, error } = await admin
+    .schema('storage')
+    .from('objects')
+    .select('name')
+    .eq('bucket_id', BUCKET)
+    .eq('name', path)
+    .maybeSingle()
 
-  return output instanceof Uint8Array ? output : new Uint8Array(output)
+  if (error) return { exists: false, error: error.message }
+  return { exists: Boolean(data), error: null }
 }
 
 async function markProcessingFailed(
@@ -90,55 +92,28 @@ export async function processOneMediaAsset(
   )
 
   if (isHeicImage(asset)) {
-    const { data: sourceBlob, error: downloadErr } = await admin.storage
-      .from(BUCKET)
-      .download(asset.original_path)
-
-    if (downloadErr || !sourceBlob) {
-      const message = downloadErr?.message ?? 'Could not read original HEIC image'
-      await markProcessingFailed(admin, asset, actorId, 'download_original', message)
-      return { ok: false as const, error: message }
-    }
-
-    const heicBytes = new Uint8Array(await sourceBlob.arrayBuffer())
-    let jpegBytes: Uint8Array
-    try {
-      jpegBytes = await convertHeicToJpeg(heicBytes)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      await markProcessingFailed(admin, asset, actorId, 'convert_heic_to_jpeg', message, {
-        mime_type: asset.mime_type,
-        input_type: heicBytes.constructor.name,
-        input_byte_length: heicBytes.byteLength,
-      })
-      return { ok: false as const, error: message }
-    }
-
-    const jpegBlob = new Blob([jpegBytes], { type: 'image/jpeg' })
-    const uploadProcessed = await admin.storage
-      .from(BUCKET)
-      .upload(processedPath, jpegBlob, {
-        contentType: 'image/jpeg',
-        upsert: true,
-      })
-
-    if (uploadProcessed.error) {
-      await markProcessingFailed(admin, asset, actorId, 'upload_converted_processed', uploadProcessed.error.message)
-      return { ok: false as const, error: uploadProcessed.error.message }
+    const processedObject = await storageObjectExists(admin, processedPath)
+    if (processedObject.error) {
+      await markProcessingFailed(admin, asset, actorId, 'verify_converted_processed', processedObject.error)
+      return { ok: false as const, error: processedObject.error }
     }
 
     let storedThumbPath: string | null = null
     if (thumbPath) {
-      const uploadThumb = await admin.storage
-        .from(BUCKET)
-        .upload(thumbPath, jpegBlob, {
-          contentType: 'image/jpeg',
-          upsert: true,
-        })
-
-      if (!uploadThumb.error) {
+      const thumbObject = await storageObjectExists(admin, thumbPath)
+      if (!thumbObject.error && thumbObject.exists) {
         storedThumbPath = thumbPath
       }
+    }
+
+    if (!processedObject.exists) {
+      const message = 'Converted JPEG derivative is missing'
+      await markProcessingFailed(admin, asset, actorId, 'verify_converted_processed', message, {
+        mime_type: asset.mime_type,
+        processed_path: processedPath,
+        thumbnail_path: storedThumbPath,
+      })
+      return { ok: false as const, error: message }
     }
 
     await admin
@@ -165,7 +140,7 @@ export async function processOneMediaAsset(
         processed_path: processedPath,
         thumbnail_path: storedThumbPath,
         poster_path: posterPath,
-        pipeline_mode: 'heic-to-jpeg',
+        pipeline_mode: 'client-heic-to-jpeg',
       },
     })
 

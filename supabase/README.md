@@ -104,7 +104,7 @@ For hosted Supabase projects, set the equivalent values in **Auth settings** in 
 
 Current processing pipeline publishes secure derivatives:
 - JPEG/PNG/WEBP uploads are copied into `processed/` and `thumbs/`
-- HEIC/HEIF uploads are converted to JPEG derivatives in `processed/` and `thumbs/`
+- HEIC/HEIF uploads keep the original file and upload browser-converted JPEG derivatives into `processed/` and `thumbs/`
 - media is published only after processing step succeeds
 - capture-window policy:
   - `admin` uploads are exempt

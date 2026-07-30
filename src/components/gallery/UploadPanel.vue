@@ -115,7 +115,7 @@ onUnmounted(() => {
             class="file-input"
             type="file"
             multiple
-            accept="image/*,video/mp4,video/quicktime"
+            accept="image/*,.heic,.heif,video/mp4,video/quicktime"
             @change="handleFileSelect"
           />
 

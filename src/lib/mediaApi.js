@@ -85,6 +85,22 @@ export async function uploadWithSignedTicket(ticket, file) {
   })
 }
 
+export async function uploadWithSignedUploadUrl(uploadTarget, file) {
+  if (!supabase) throw new Error('Supabase is not configured')
+
+  const path = String(uploadTarget?.path || '').trim()
+  const token = String(uploadTarget?.token || '').trim()
+  if (!path || !token) throw new Error('Derivative upload target is missing')
+
+  const { error } = await supabase.storage
+    .from('shared-media')
+    .uploadToSignedUrl(path, token, file, {
+      contentType: String(file?.type || 'image/jpeg'),
+    })
+
+  if (error) throw error
+}
+
 export function completeUpload(mediaId) {
   return callFunction('complete-upload', {
     method: 'POST',
