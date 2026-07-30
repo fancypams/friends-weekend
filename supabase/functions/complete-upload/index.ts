@@ -18,6 +18,7 @@ type MediaRow = {
   mime_type: string
   status: 'uploading' | 'processing' | 'published' | 'failed' | 'removed'
   original_path: string
+  failure_reason: string | null
 }
 
 Deno.serve(async (req) => {
@@ -44,7 +45,7 @@ Deno.serve(async (req) => {
 
   const { data: media, error: mediaErr } = await auth.admin
     .from('media_assets')
-    .select('id,owner_id,media_type,mime_type,status,original_path')
+    .select('id,owner_id,media_type,mime_type,status,original_path,failure_reason')
     .eq('id', mediaId)
     .maybeSingle<MediaRow>()
 
@@ -58,6 +59,39 @@ Deno.serve(async (req) => {
 
   if (media.owner_id !== auth.user.id && auth.profile.role !== 'admin') {
     return json({ error: 'Cannot finalize another user media upload' }, 403)
+  }
+
+  if (media.status === 'published') {
+    return json({
+      status: 'published',
+      mediaId: media.id,
+    })
+  }
+
+  if (media.status === 'processing') {
+    const processing = await processOneMediaAsset(auth.admin, media.id, auth.user.id)
+
+    if (!processing.ok) {
+      return serverError('Media processing failed', processing.error)
+    }
+
+    return json({
+      status: 'published',
+      mediaId: media.id,
+    })
+  }
+
+  if (media.status === 'failed' && !String(media.failure_reason || '').toLowerCase().includes('capture timestamp')) {
+    const processing = await processOneMediaAsset(auth.admin, media.id, auth.user.id)
+
+    if (!processing.ok) {
+      return serverError('Media processing failed', processing.error)
+    }
+
+    return json({
+      status: 'published',
+      mediaId: media.id,
+    })
   }
 
   if (media.status !== 'uploading') {
