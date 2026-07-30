@@ -16,8 +16,11 @@ const emit = defineEmits(['uploadClick'])
 <template>
   <section class="empty-state">
     <div class="empty-icon" aria-hidden="true">⬆</div>
-    <h3>Uploads locked for now</h3>
-    <p>
+    <h3>{{ uploadEnabled ? 'No shared media yet' : 'Uploads locked for now' }}</h3>
+    <p v-if="uploadEnabled">
+      Be the first to add a photo or video from Seattle.
+    </p>
+    <p v-else>
       Your upload window opens during the Seattle media window and closes 1 hour after you arrive back at your home
       destination.
     </p>
