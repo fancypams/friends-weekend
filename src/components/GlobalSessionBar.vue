@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { bypassAuth, hasSupabaseConfig, supabase } from '../lib/supabaseClient'
-import { getAuthState, globalSignOut } from '../lib/authAccess'
+import { getAuthState, signOutCurrentSession } from '../lib/authAccess'
 
 const router = useRouter()
 const signingOut = ref(false)
@@ -34,10 +34,10 @@ async function syncState() {
   }
 }
 
-async function logoutEverywhere() {
+async function logoutCurrentSession() {
   signingOut.value = true
   try {
-    await globalSignOut()
+    await signOutCurrentSession()
     await router.replace('/login')
   } finally {
     signingOut.value = false
@@ -67,7 +67,7 @@ onUnmounted(() => {
 <template>
   <div v-if="visible" class="session-bar">
     <span class="session-email">{{ email }}</span>
-    <button type="button" class="logout-btn" :disabled="signingOut" @click="logoutEverywhere">
+    <button type="button" class="logout-btn" :disabled="signingOut" @click="logoutCurrentSession">
       {{ signingOut ? 'Signing out…' : 'Logout' }}
     </button>
   </div>

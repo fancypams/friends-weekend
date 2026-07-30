@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { globalSignOut } from '../lib/authAccess'
+import { signOutCurrentSession } from '../lib/authAccess'
 import PrimaryNav from './PrimaryNav.vue'
 
 defineProps({
@@ -110,7 +110,7 @@ const showHamburger = computed(() => {
 
 async function signOutFromMenu() {
   menuOpen.value = false
-  await globalSignOut().catch(() => {})
+  await signOutCurrentSession().catch(() => {})
   await router.replace('/login')
 }
 

@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { globalSignOut } from '../lib/authAccess'
+import { signOutCurrentSession } from '../lib/authAccess'
 
 const route = useRoute()
 const router = useRouter()
@@ -32,7 +32,7 @@ function isActivePath(path) {
 }
 
 async function signOut() {
-  await globalSignOut().catch(() => {})
+  await signOutCurrentSession().catch(() => {})
   await router.replace('/login')
 }
 </script>

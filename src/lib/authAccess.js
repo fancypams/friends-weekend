@@ -159,7 +159,7 @@ export async function sendMagicLink(email, redirectTo, requestId = '') {
   return payload
 }
 
-export async function globalSignOut() {
+export async function signOutCurrentSession() {
   if (!hasSupabaseConfig || !supabase) return
-  await supabase.auth.signOut({ scope: 'global' })
+  await supabase.auth.signOut({ scope: 'local' })
 }

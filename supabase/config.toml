@@ -1,14 +1,14 @@
 project_id = "friends-weekend"
 
 [auth]
-# Keep access tokens short-lived (1 hour) and enforce regular re-auth.
+# Keep access tokens short-lived (1 hour); refresh tokens keep browser sessions alive.
 jwt_expiry = 3600
 
 [auth.sessions]
-# Session max lifetime: 14 days.
-timebox = "336h"
-# Session inactivity timeout: 7 days without refresh/activity.
-inactivity_timeout = "168h"
+# Session max lifetime: 90 days.
+timebox = "2160h"
+# Session inactivity timeout: 30 days without refresh/activity.
+inactivity_timeout = "720h"
 
 [auth.rate_limit]
 # Magic link / OTP emails per hour per IP.
