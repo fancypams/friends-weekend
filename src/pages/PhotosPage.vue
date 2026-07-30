@@ -93,9 +93,9 @@ const SIGNED_URL_CACHE_MAX_ENTRIES = 500
 const UPLOAD_DB_NAME = 'friends-weekend-upload-queue'
 const UPLOAD_DB_STORE = 'queue_items'
 const UPLOAD_WINDOW_REFRESH_MS = 5 * 60 * 1000
-const CAPTURE_WINDOW_START_MS = Date.parse('2026-07-31T07:00:00.000Z') // Jul 31 00:00 Seattle (PDT)
+const CAPTURE_WINDOW_START_MS = Date.parse('2026-07-30T07:00:00.000Z') // Jul 30 00:00 Seattle (PDT)
 const CAPTURE_WINDOW_END_MS = Date.parse('2026-08-05T06:59:59.999Z') // Aug 4 23:59:59 Seattle (PDT)
-const CAPTURE_WINDOW_LABEL = 'Jul 31-Aug 4, 2026 (Seattle time)'
+const CAPTURE_WINDOW_LABEL = 'Jul 30-Aug 4, 2026 (Seattle time)'
 const PT_UTC_OFFSET_HOURS = 7 // Event is in summer (PDT, UTC-7)
 const PT_OFFSET_MS = PT_UTC_OFFSET_HOURS * 60 * 60 * 1000
 const DAILY_REVEAL_HOUR_PT = 21 // 9:00 PM PT
@@ -1512,8 +1512,8 @@ onUnmounted(() => {
           <div>
             <h2 class="welcome-heading">Shared media</h2>
             <p class="welcome-blurb gallery-intro">
-              Uploads open 2 hours before each traveler leaves home for Seattle and close 1 hour after they arrive
-              back at their home destination. New uploads reveal each night at 9:00 PM Pacific.
+              Uploads are open for the Seattle window and close 1 hour after each traveler arrives back at their home
+              destination. New uploads reveal each night at 9:00 PM Pacific.
             </p>
           </div>
         </header>
@@ -1532,8 +1532,8 @@ onUnmounted(() => {
             <div>
               <h2 class="welcome-heading">Shared media</h2>
               <p class="welcome-blurb gallery-intro">
-                Uploads open 2 hours before each traveler leaves home for Seattle and close 1 hour after they arrive
-                back at their home destination. New uploads reveal each night at 9:00 PM Pacific.
+                Uploads are open for the Seattle window and close 1 hour after each traveler arrives back at their home
+                destination. New uploads reveal each night at 9:00 PM Pacific.
               </p>
               <p v-if="forceCensoredPreview" class="debug-note">
                 Preview mode is on: other people's uploads are intentionally shown as locked.

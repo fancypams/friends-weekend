@@ -107,7 +107,7 @@ Current processing pipeline is **copy-through** for secure publishing:
 - media is published only after processing step succeeds
 - capture-window policy:
   - `admin` uploads are exempt
-  - non-admin uploads are rejected unless capture metadata falls within Jul 31-Aug 4, 2026 (Seattle time)
+  - non-admin uploads are rejected unless capture metadata falls within Jul 30-Aug 4, 2026 (Seattle time)
 
 If you need true HEIC to JPEG conversion, MP4 transcoding, or EXIF stripping, plug those transformations into `functions/_shared/media-processor.ts` or move processing to a dedicated worker service.
 

@@ -8,6 +8,7 @@ const OPEN_BEFORE_DEPARTURE_MS = 2 * 60 * 60 * 1000
 const CLOSE_AFTER_ARRIVAL_MS = 60 * 60 * 1000
 const MISSING_ACTUAL_ARRIVAL_CAP_MS = 48 * 60 * 60 * 1000
 const SEATTLE_SUMMER_UTC_OFFSET_MS = 7 * 60 * 60 * 1000
+const SEATTLE_UPLOAD_WINDOW_START_MS = Date.parse('2026-07-30T07:00:00.000Z') // Jul 30 00:00 Seattle (PDT)
 
 type FlightRow = {
   family: string
@@ -283,7 +284,8 @@ export async function resolveUploadWindow(admin: SupabaseClient, profile: Profil
     return buildUnavailable('Scheduled departure time is unavailable for the trip to Seattle.')
   }
 
-  const opensAtDate = new Date(scheduledDeparture.getTime() - OPEN_BEFORE_DEPARTURE_MS)
+  const scheduledOpenMs = scheduledDeparture.getTime() - OPEN_BEFORE_DEPARTURE_MS
+  const opensAtDate = new Date(Math.min(scheduledOpenMs, SEATTLE_UPLOAD_WINDOW_START_MS))
   const actualFinalArrival = parseIso(finalHomeStatus?.actual_arrival_at)
   const scheduledOrEstimatedArrival = parseIso(finalHomeStatus?.estimated_arrival_at)
     ?? parseIso(finalHomeStatus?.scheduled_arrival_at)
@@ -296,7 +298,7 @@ export async function resolveUploadWindow(admin: SupabaseClient, profile: Profil
 
   let reason = 'Uploads are open.'
   if (nowMs < opensAtDate.getTime()) {
-    reason = 'Uploads open 2 hours before your scheduled departure to Seattle.'
+    reason = 'Uploads open when the Seattle media window starts.'
   } else if (nowMs > closesAtDate.getTime()) {
     reason = actualFinalArrival
       ? 'Uploads closed 1 hour after you arrived at your home destination.'
