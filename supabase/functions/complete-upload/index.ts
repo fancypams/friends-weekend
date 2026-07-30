@@ -83,40 +83,7 @@ Deno.serve(async (req) => {
 
   const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer())
   const capture = await extractCaptureTimestamp(media.media_type, sourceBytes)
-  if (!capture) {
-    await auth.admin
-      .from('media_assets')
-      .update({
-        status: 'failed',
-        uploaded_at: new Date().toISOString(),
-        processed_at: new Date().toISOString(),
-        failure_reason: `Missing capture timestamp metadata. Allowed window: ${captureWindowLabel()}.`,
-      })
-      .eq('id', media.id)
-
-    await auth.admin.storage.from(BUCKET).remove([media.original_path])
-
-    await audit(auth.admin, {
-      actorId: auth.user.id,
-      action: 'media.capture_window_rejected',
-      entity: 'media_assets',
-      entityId: media.id,
-      details: {
-        reason: 'missing_capture_metadata',
-      },
-    })
-
-    return json(
-      {
-        status: 'failed',
-        mediaId: media.id,
-        reason: `Missing capture timestamp metadata. Allowed window: ${captureWindowLabel()}.`,
-      },
-      422,
-    )
-  }
-
-  if (!isWithinCaptureWindow(capture.capturedAt)) {
+  if (capture && !isWithinCaptureWindow(capture.capturedAt)) {
     await auth.admin
       .from('media_assets')
       .update({
@@ -175,6 +142,14 @@ Deno.serve(async (req) => {
     action: 'media.upload_completed',
     entity: 'media_assets',
     entityId: media.id,
+    details: capture
+      ? {
+          captured_at: capture.capturedAt.toISOString(),
+          capture_source: capture.source,
+        }
+      : {
+          capture_source: 'missing',
+        },
   })
 
   const processing = await processOneMediaAsset(auth.admin, media.id, auth.user.id)
