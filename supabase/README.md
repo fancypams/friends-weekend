@@ -111,7 +111,7 @@ Current processing pipeline publishes secure derivatives:
   - missing capture metadata is allowed
   - non-admin uploads are rejected only when capture metadata is present and outside Jul 30-Aug 4, 2026 (Seattle time)
 
-If you need true HEIC to JPEG conversion, MP4 transcoding, or EXIF stripping, plug those transformations into `functions/_shared/media-processor.ts` or move processing to a dedicated worker service.
+If you need MP4 transcoding, EXIF stripping, or resized image thumbnails, plug those transformations into `functions/_shared/media-processor.ts` or move processing to a dedicated worker service.
 
 ## Upload Limits
 

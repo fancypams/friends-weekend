@@ -4,8 +4,8 @@ import { BUCKET } from './constants.ts'
 import { buildDerivedPaths } from './media-paths.ts'
 import { audit } from './audit.ts'
 
-// This v1 processor currently does secure copy-through publication.
-// Replace with actual conversion/transcoding + metadata stripping in a dedicated worker.
+// This v1 processor publishes secure derivatives. HEIC/HEIF images are converted
+// to JPEG derivatives; other supported media uses copy-through publication.
 export type MediaAssetRow = {
   id: string
   owner_id: string
@@ -22,13 +22,9 @@ function isHeicImage(asset: Pick<MediaAssetRow, 'media_type' | 'mime_type'>) {
   return asset.media_type === 'image' && (asset.mime_type === 'image/heic' || asset.mime_type === 'image/heif')
 }
 
-function bytesToArrayBuffer(bytes: Uint8Array) {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
-}
-
 async function convertHeicToJpeg(bytes: Uint8Array) {
   const output = await heicConvert({
-    buffer: bytesToArrayBuffer(bytes),
+    buffer: bytes,
     format: 'JPEG',
     quality: 0.9,
   })
@@ -42,6 +38,7 @@ async function markProcessingFailed(
   actorId: string | null,
   step: string,
   message: string,
+  details: Record<string, unknown> = {},
 ) {
   await admin
     .from('media_assets')
@@ -60,6 +57,7 @@ async function markProcessingFailed(
     details: {
       step,
       error: message,
+      ...details,
     },
   })
 }
@@ -102,12 +100,17 @@ export async function processOneMediaAsset(
       return { ok: false as const, error: message }
     }
 
+    const heicBytes = new Uint8Array(await sourceBlob.arrayBuffer())
     let jpegBytes: Uint8Array
     try {
-      jpegBytes = await convertHeicToJpeg(new Uint8Array(await sourceBlob.arrayBuffer()))
+      jpegBytes = await convertHeicToJpeg(heicBytes)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      await markProcessingFailed(admin, asset, actorId, 'convert_heic_to_jpeg', message)
+      await markProcessingFailed(admin, asset, actorId, 'convert_heic_to_jpeg', message, {
+        mime_type: asset.mime_type,
+        input_type: heicBytes.constructor.name,
+        input_byte_length: heicBytes.byteLength,
+      })
       return { ok: false as const, error: message }
     }
 
