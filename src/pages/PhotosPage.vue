@@ -304,6 +304,7 @@ async function convertHeicFileToJpeg(file) {
     throw new Error('HEIC conversion is unavailable in this browser.')
   }
 
+  const fileName = jpegFilenameFrom(file.name)
   let source = null
   try {
     if (typeof createImageBitmap === 'function') {
@@ -314,7 +315,20 @@ async function convertHeicFileToJpeg(file) {
   }
 
   if (!source) {
-    source = await loadImageElement(file)
+    try {
+      source = await loadImageElement(file)
+    } catch {
+      const { heicTo } = await import('heic-to')
+      const jpeg = await heicTo({
+        blob: file,
+        type: 'image/jpeg',
+        quality: 0.9,
+      })
+      return new File([jpeg], fileName, {
+        type: 'image/jpeg',
+        lastModified: Number(file.lastModified || Date.now()),
+      })
+    }
   }
 
   const width = Number(source.width || source.naturalWidth || 0)
@@ -337,7 +351,7 @@ async function convertHeicFileToJpeg(file) {
   source.close?.()
 
   const blob = await canvasToJpegBlob(canvas)
-  return new File([blob], jpegFilenameFrom(file.name), {
+  return new File([blob], fileName, {
     type: 'image/jpeg',
     lastModified: Number(file.lastModified || Date.now()),
   })
