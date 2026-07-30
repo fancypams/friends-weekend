@@ -24,14 +24,16 @@ export function buildDerivedPaths(
   mimeType: string,
   originalPath?: string,
 ) {
-  const ext = FILE_EXT_BY_MIME[mimeType] ?? (mediaType === 'image' ? 'jpg' : 'mp4')
+  const derivedExt = mediaType === 'image' && (mimeType === 'image/heic' || mimeType === 'image/heif')
+    ? 'jpg'
+    : FILE_EXT_BY_MIME[mimeType] ?? (mediaType === 'image' ? 'jpg' : 'mp4')
   const sourceName = String(originalPath || '').split('/').pop() || ''
   const safeSource = sanitizeFilename(sourceName)
   const fallbackBase = mediaType === 'image' ? 'image' : 'video'
   const hasExt = safeSource.includes('.')
-  const processedFilename = hasExt ? safeSource : `${safeSource || fallbackBase}.${ext}`
-  const baseName = processedFilename.replace(/\.[^.]+$/, '') || fallbackBase
-  const thumbFilename = `${baseName}-thumb.${ext}`
+  const baseName = (hasExt ? safeSource.replace(/\.[^.]+$/, '') : safeSource) || fallbackBase
+  const processedFilename = `${baseName}.${derivedExt}`
+  const thumbFilename = `${baseName}-thumb.${derivedExt}`
 
   if (mediaType === 'image') {
     return {

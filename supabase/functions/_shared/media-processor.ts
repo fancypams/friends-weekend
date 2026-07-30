@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
+import heicConvert from 'npm:heic-convert@2.1.0'
 import { BUCKET } from './constants.ts'
 import { buildDerivedPaths } from './media-paths.ts'
 import { audit } from './audit.ts'
@@ -15,6 +16,52 @@ export type MediaAssetRow = {
   processed_path: string | null
   thumbnail_path: string | null
   poster_path: string | null
+}
+
+function isHeicImage(asset: Pick<MediaAssetRow, 'media_type' | 'mime_type'>) {
+  return asset.media_type === 'image' && (asset.mime_type === 'image/heic' || asset.mime_type === 'image/heif')
+}
+
+function bytesToArrayBuffer(bytes: Uint8Array) {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+}
+
+async function convertHeicToJpeg(bytes: Uint8Array) {
+  const output = await heicConvert({
+    buffer: bytesToArrayBuffer(bytes),
+    format: 'JPEG',
+    quality: 0.9,
+  })
+
+  return output instanceof Uint8Array ? output : new Uint8Array(output)
+}
+
+async function markProcessingFailed(
+  admin: SupabaseClient,
+  asset: Pick<MediaAssetRow, 'id'>,
+  actorId: string | null,
+  step: string,
+  message: string,
+) {
+  await admin
+    .from('media_assets')
+    .update({
+      status: 'failed',
+      failure_reason: message,
+      processed_at: new Date().toISOString(),
+    })
+    .eq('id', asset.id)
+
+  await audit(admin, {
+    actorId,
+    action: 'media.process_failed',
+    entity: 'media_assets',
+    entityId: asset.id,
+    details: {
+      step,
+      error: message,
+    },
+  })
 }
 
 export async function processOneMediaAsset(
@@ -43,6 +90,84 @@ export async function processOneMediaAsset(
     asset.mime_type,
     asset.original_path,
   )
+
+  if (isHeicImage(asset)) {
+    const { data: sourceBlob, error: downloadErr } = await admin.storage
+      .from(BUCKET)
+      .download(asset.original_path)
+
+    if (downloadErr || !sourceBlob) {
+      const message = downloadErr?.message ?? 'Could not read original HEIC image'
+      await markProcessingFailed(admin, asset, actorId, 'download_original', message)
+      return { ok: false as const, error: message }
+    }
+
+    let jpegBytes: Uint8Array
+    try {
+      jpegBytes = await convertHeicToJpeg(new Uint8Array(await sourceBlob.arrayBuffer()))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      await markProcessingFailed(admin, asset, actorId, 'convert_heic_to_jpeg', message)
+      return { ok: false as const, error: message }
+    }
+
+    const jpegBlob = new Blob([jpegBytes], { type: 'image/jpeg' })
+    const uploadProcessed = await admin.storage
+      .from(BUCKET)
+      .upload(processedPath, jpegBlob, {
+        contentType: 'image/jpeg',
+        upsert: true,
+      })
+
+    if (uploadProcessed.error) {
+      await markProcessingFailed(admin, asset, actorId, 'upload_converted_processed', uploadProcessed.error.message)
+      return { ok: false as const, error: uploadProcessed.error.message }
+    }
+
+    let storedThumbPath: string | null = null
+    if (thumbPath) {
+      const uploadThumb = await admin.storage
+        .from(BUCKET)
+        .upload(thumbPath, jpegBlob, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        })
+
+      if (!uploadThumb.error) {
+        storedThumbPath = thumbPath
+      }
+    }
+
+    await admin
+      .from('media_assets')
+      .update({
+        status: 'published',
+        processed_path: processedPath,
+        thumbnail_path: storedThumbPath,
+        poster_path: posterPath,
+        failure_reason: null,
+        processed_at: new Date().toISOString(),
+        published_at: new Date().toISOString(),
+      })
+      .eq('id', asset.id)
+
+    await audit(admin, {
+      actorId,
+      action: 'media.published',
+      entity: 'media_assets',
+      entityId: asset.id,
+      details: {
+        media_type: asset.media_type,
+        mime_type: asset.mime_type,
+        processed_path: processedPath,
+        thumbnail_path: storedThumbPath,
+        poster_path: posterPath,
+        pipeline_mode: 'heic-to-jpeg',
+      },
+    })
+
+    return { ok: true as const }
+  }
 
   const copyToProcessed = await admin.storage
     .from(BUCKET)

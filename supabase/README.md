@@ -102,8 +102,9 @@ For hosted Supabase projects, set the equivalent values in **Auth settings** in 
 
 ## Processing Behavior
 
-Current processing pipeline is **copy-through** for secure publishing:
-- uploaded objects are copied into `processed/` and `thumbs/`
+Current processing pipeline publishes secure derivatives:
+- JPEG/PNG/WEBP uploads are copied into `processed/` and `thumbs/`
+- HEIC/HEIF uploads are converted to JPEG derivatives in `processed/` and `thumbs/`
 - media is published only after processing step succeeds
 - capture-window policy:
   - `admin` uploads are exempt
