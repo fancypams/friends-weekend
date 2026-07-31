@@ -56,7 +56,10 @@ function onThumbKeydown(event) {
 </script>
 
 <template>
-  <article class="media-card" :class="{ 'overlay-card': overlay, 'compact-card': compact }">
+  <article
+    class="media-card"
+    :class="{ 'overlay-card': overlay, 'compact-card': compact, 'media-card--locked': item.embargoed_for_viewer }"
+  >
     <div
       class="thumb-wrap preview-trigger"
       role="button"
@@ -154,6 +157,10 @@ function onThumbKeydown(event) {
   cursor: pointer;
 }
 
+.media-card--locked .preview-trigger {
+  cursor: default;
+}
+
 .preview-trigger:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--deep-sky) 70%, white);
   outline-offset: 2px;
@@ -167,6 +174,12 @@ function onThumbKeydown(event) {
   display: block;
 }
 
+.media-card--locked .thumb-wrap img,
+.media-card--locked .thumb-wrap video {
+  filter: blur(16px) saturate(0.72) brightness(1.06);
+  transform: scale(1.08);
+}
+
 .thumb-empty {
   height: 132px;
   display: grid;
@@ -178,8 +191,10 @@ function onThumbKeydown(event) {
 .embargo-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(14px) saturate(0.8);
+  background:
+    radial-gradient(circle at 50% 44%, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.1) 54%),
+    rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(12px) saturate(0.72);
   pointer-events: none;
 }
 

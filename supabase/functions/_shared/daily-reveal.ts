@@ -17,7 +17,7 @@ export function revealAtIsoForUpload(uploadedAtRaw: string | null | undefined) {
 
   let revealUtcMs = Date.UTC(year, month, day, REVEAL_HOUR_PT + PT_UTC_OFFSET_HOURS, 0, 0, 0)
   if (hourPt >= REVEAL_HOUR_PT) {
-    revealUtcMs += 24 * 60 * 60 * 1000
+    revealUtcMs = uploadedMs
   }
 
   if (Number.isFinite(FIRST_REVEAL_AT_MS) && revealUtcMs < FIRST_REVEAL_AT_MS) {
