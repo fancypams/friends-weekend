@@ -3,8 +3,8 @@ import { BUCKET } from './constants.ts'
 import { buildDerivedPaths } from './media-paths.ts'
 import { audit } from './audit.ts'
 
-// Image derivatives are generated in the browser at upload time; videos use
-// copy-through publication for now.
+// Image derivatives and video posters are generated in the browser at upload
+// time; videos still use copy-through for the playable asset.
 export type MediaAssetRow = {
   id: string
   owner_id: string
@@ -199,6 +199,31 @@ export async function processOneMediaAsset(
     if (!copyThumb.error) {
       storedThumbPath = thumbPath
     }
+  }
+
+  if (!posterPath) {
+    const message = 'Video poster path is missing'
+    await markProcessingFailed(admin, asset, actorId, 'verify_video_poster', message, {
+      mime_type: asset.mime_type,
+      processed_path: processedPath,
+    })
+    return { ok: false as const, error: message }
+  }
+
+  const posterObject = await storageObjectExists(admin, posterPath)
+  if (posterObject.error) {
+    await markProcessingFailed(admin, asset, actorId, 'verify_video_poster', posterObject.error)
+    return { ok: false as const, error: posterObject.error }
+  }
+
+  if (!posterObject.exists) {
+    const message = 'Video poster derivative is missing'
+    await markProcessingFailed(admin, asset, actorId, 'verify_video_poster', message, {
+      mime_type: asset.mime_type,
+      processed_path: processedPath,
+      poster_path: posterPath,
+    })
+    return { ok: false as const, error: message }
   }
 
   await admin

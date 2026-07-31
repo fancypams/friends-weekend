@@ -163,6 +163,21 @@ Deno.serve(async (req) => {
         token: thumbUpload.token,
       },
     }
+  } else if (derivedPaths.posterPath) {
+    const { data: posterUpload, error: posterUploadErr } = await auth.admin.storage
+      .from(BUCKET)
+      .createSignedUploadUrl(derivedPaths.posterPath)
+
+    if (posterUploadErr || !posterUpload) {
+      return serverError('Failed to create video poster upload URL', posterUploadErr?.message)
+    }
+
+    derivedUploads = {
+      poster: {
+        path: derivedPaths.posterPath,
+        token: posterUpload.token,
+      },
+    }
   }
 
   const { error: insertErr } = await auth.admin.from('media_assets').insert({

@@ -70,7 +70,7 @@ function onThumbKeydown(event) {
     >
       <span v-if="!item.preview_url" class="thumb-skeleton" aria-hidden="true"></span>
       <img
-        v-if="item.media_type === 'image' && item.preview_url"
+        v-if="item.preview_url && (item.media_type === 'image' || item.preview_variant === 'poster')"
         :src="item.preview_url"
         :alt="item.original_filename"
         loading="lazy"

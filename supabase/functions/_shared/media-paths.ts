@@ -46,7 +46,7 @@ export function buildDerivedPaths(
   return {
     processedPath: `processed/${userId}/${mediaId}/${processedFilename}`,
     thumbPath: null,
-    posterPath: null,
+    posterPath: `posters/${userId}/${mediaId}/${baseName}-poster.jpg`,
   }
 }
 

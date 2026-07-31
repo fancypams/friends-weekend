@@ -92,6 +92,7 @@ const UPLOAD_TRANSFER_TIMEOUT_MS = 90_000
 const UPLOAD_PROCESSING_TIMEOUT_MS = 45_000
 const THUMB_DERIVATIVE = { width: 480, height: 360, fit: 'cover', quality: 0.72, suffix: 'thumb' }
 const VIEWER_DERIVATIVE = { width: 1800, height: 1800, fit: 'contain', quality: 0.82, suffix: 'viewer' }
+const VIDEO_POSTER_DERIVATIVE = { width: 480, height: 360, fit: 'cover', quality: 0.72, suffix: 'poster' }
 const AUTH_HEARTBEAT_MS = 30_000
 const AUTH_REFRESH_BUFFER_SECONDS = 90
 const SIGNED_URL_REFRESH_BUFFER_SECONDS = 45
@@ -361,8 +362,8 @@ async function createImageDerivativeFromSource(source, file, options) {
     throw new Error('Image resizing is unavailable in this browser.')
   }
 
-  const width = Number(source.width || source.naturalWidth || 0)
-  const height = Number(source.height || source.naturalHeight || 0)
+  const width = Number(source.width || source.naturalWidth || source.videoWidth || 0)
+  const height = Number(source.height || source.naturalHeight || source.videoHeight || 0)
   if (!width || !height) {
     throw new Error('Could not read image dimensions.')
   }
@@ -407,6 +408,75 @@ async function createImageDerivatives(file) {
     return { processed, thumb }
   } finally {
     releaseImageSource(source)
+  }
+}
+
+function loadVideoElement(file) {
+  return new Promise((resolve, reject) => {
+    if (typeof document === 'undefined') {
+      reject(new Error('Video poster generation is unavailable in this browser.'))
+      return
+    }
+
+    const url = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    let settled = false
+    let timeoutId = null
+
+    const cleanup = ({ revoke = true } = {}) => {
+      if (timeoutId) window.clearTimeout(timeoutId)
+      video.onloadedmetadata = null
+      video.onloadeddata = null
+      video.onseeked = null
+      video.onerror = null
+      if (revoke) URL.revokeObjectURL(url)
+    }
+
+    const finish = () => {
+      if (settled) return
+      settled = true
+      cleanup({ revoke: false })
+      video.dataset.objectUrl = url
+      resolve(video)
+    }
+
+    const fail = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(new Error('Could not create a video thumbnail.'))
+    }
+
+    video.muted = true
+    video.playsInline = true
+    video.preload = 'metadata'
+    video.onloadedmetadata = () => {
+      const duration = Number(video.duration || 0)
+      const targetTime = Number.isFinite(duration) && duration > 1 ? Math.min(0.5, duration / 4) : 0
+      if (targetTime > 0) {
+        video.currentTime = targetTime
+      } else if (video.readyState >= 2) {
+        finish()
+      }
+    }
+    video.onloadeddata = () => {
+      if (video.currentTime === 0) finish()
+    }
+    video.onseeked = finish
+    video.onerror = fail
+    timeoutId = window.setTimeout(fail, 10_000)
+    video.src = url
+    video.load()
+  })
+}
+
+async function createVideoPoster(file) {
+  const video = await loadVideoElement(file)
+  try {
+    return await createImageDerivativeFromSource(video, file, VIDEO_POSTER_DERIVATIVE)
+  } finally {
+    const objectUrl = video.dataset.objectUrl
+    if (objectUrl) URL.revokeObjectURL(objectUrl)
   }
 }
 
@@ -1116,22 +1186,35 @@ async function resolvePreviewUrl(item, { force = false } = {}) {
   const embargoed = isEmbargoedForViewer(item)
   const variant = item.media_type === 'image'
     ? 'thumb'
-    : (embargoed ? 'poster' : 'processed')
+    : 'poster'
   try {
-    return await getSignedUrlCached(item.id, variant, { force })
+    return {
+      url: await getSignedUrlCached(item.id, variant, { force }),
+      variant,
+    }
   } catch {
-    return ''
+    if (item.media_type !== 'video' || embargoed) return null
+  }
+
+  try {
+    return {
+      url: await getSignedUrlCached(item.id, 'processed', { force }),
+      variant: 'processed',
+    }
+  } catch {
+    return null
   }
 }
 
 async function signAndPatchPreview(item, { force = false } = {}) {
   if (!item?.id) return
-  const url = await resolvePreviewUrl(item, { force })
-  if (!url) return
+  const preview = await resolvePreviewUrl(item, { force })
+  if (!preview?.url) return
 
   const index = galleryItems.value.findIndex((row) => row.id === item.id)
   if (index < 0) return
-  galleryItems.value[index].preview_url = url
+  galleryItems.value[index].preview_url = preview.url
+  galleryItems.value[index].preview_variant = preview.variant
 }
 
 async function handlePreviewLoadError(item) {
@@ -1411,6 +1494,7 @@ function injectUploadedMedia({ mediaId, row, mimeType }) {
     embargoed_for_viewer: false,
     reveal_at: revealAtIsoFromUploadIso(nowIso),
     preview_url: '',
+    preview_variant: '',
   }
 
   galleryItems.value = [nextItem, ...galleryItems.value]
@@ -1486,16 +1570,23 @@ async function startUpload() {
 
     try {
       let imageDerivatives = null
+      let videoPoster = null
       if (mimeType.startsWith('image/')) {
         row.status = 'requesting-ticket'
         row.progress = 15
         row.error = ''
         await persistQueueItem(row)
         imageDerivatives = await createImageDerivatives(file)
+      } else if (mimeType.startsWith('video/')) {
+        row.status = 'requesting-ticket'
+        row.progress = 15
+        row.error = ''
+        await persistQueueItem(row)
+        videoPoster = await createVideoPoster(file)
       }
 
       row.status = 'requesting-ticket'
-      row.progress = imageDerivatives ? 25 : 10
+      row.progress = imageDerivatives || videoPoster ? 25 : 10
       row.error = ''
       await persistQueueItem(row)
 
@@ -1536,6 +1627,18 @@ async function startUpload() {
           () => uploadWithSignedUploadUrl(ticket.derivedUploads.thumb, imageDerivatives.thumb),
           UPLOAD_TRANSFER_TIMEOUT_MS,
           'Thumbnail upload',
+        ))
+      } else if (videoPoster) {
+        if (!ticket.derivedUploads?.poster) {
+          throw new Error('Video poster upload target is missing')
+        }
+
+        row.progress = 70
+        await persistQueueItem(row)
+        await withRetries(() => withTimeout(
+          () => uploadWithSignedUploadUrl(ticket.derivedUploads.poster, videoPoster),
+          UPLOAD_TRANSFER_TIMEOUT_MS,
+          'Video thumbnail upload',
         ))
       }
 
