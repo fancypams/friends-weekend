@@ -72,12 +72,30 @@ function firstName(value: unknown) {
   return normalizeText(value).split(/\s+/)[0]?.toLowerCase() || ''
 }
 
+function normalizeNameToken(value: unknown) {
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/[^a-z]+/g, ' ')
+    .trim()
+}
+
+function travelerNameTokens(value: unknown) {
+  return normalizeNameToken(value)
+    .split(/\s+(?:and|or)\s+|[,&/+]+/)
+    .map((token) => normalizeNameToken(token))
+    .filter(Boolean)
+}
+
 function travelerMatchesProfile(row: FlightRow, profile: ProfileRow) {
-  const traveler = normalizeText(row.traveler).toLowerCase()
-  const displayName = normalizeText(profile.display_name).toLowerCase()
+  const traveler = normalizeNameToken(row.traveler)
+  const displayName = normalizeNameToken(profile.display_name)
   const displayFirstName = firstName(profile.display_name)
+  const travelerTokens = travelerNameTokens(row.traveler)
   if (!traveler || !displayName) return false
-  return traveler === displayName || traveler === displayFirstName
+  return traveler === displayName
+    || traveler === displayFirstName
+    || travelerTokens.includes(displayName)
+    || travelerTokens.includes(displayFirstName)
 }
 
 function parseGvizCell(value: unknown) {
