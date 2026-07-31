@@ -28,6 +28,7 @@ type MediaAssetListRow = {
 type ProfileEmail = {
   user_id: string
   email: string
+  display_name: string | null
 }
 
 Deno.serve(async (req) => {
@@ -74,12 +75,12 @@ Deno.serve(async (req) => {
   const rows = hasMore ? data.slice(0, limit) : data
 
   const ownerIds = Array.from(new Set(rows.map((row) => row.owner_id)))
-  const ownerEmailById: Record<string, string> = {}
+  const ownerById: Record<string, ProfileEmail> = {}
 
   if (ownerIds.length > 0) {
     const { data: owners, error: ownerErr } = await auth.admin
       .from('profiles')
-      .select('user_id,email')
+      .select('user_id,email,display_name')
       .in('user_id', ownerIds)
       .returns<ProfileEmail[]>()
 
@@ -88,7 +89,7 @@ Deno.serve(async (req) => {
     }
 
     for (const owner of owners ?? []) {
-      ownerEmailById[owner.user_id] = owner.email
+      ownerById[owner.user_id] = owner
     }
   }
 
@@ -107,7 +108,8 @@ Deno.serve(async (req) => {
 
       return {
         ...row,
-        owner_email: lockedForViewer ? null : ownerEmailById[row.owner_id] ?? null,
+        owner_email: lockedForViewer ? null : ownerById[row.owner_id]?.email ?? null,
+        owner_display_name: lockedForViewer ? null : ownerById[row.owner_id]?.display_name ?? null,
         processed_path: lockedForViewer ? null : row.processed_path,
         thumbnail_path: lockedForViewer ? null : row.thumbnail_path,
         poster_path: lockedForViewer ? null : row.poster_path,

@@ -18,6 +18,7 @@ import {
   uploadWithSignedTicket,
   uploadWithSignedUploadUrl,
 } from '../lib/mediaApi'
+import { uploaderDisplayName } from '../lib/uploaderDisplay'
 
 const session = ref(null)
 const profile = ref(null)
@@ -105,6 +106,16 @@ const FIRST_REVEAL_AT_MS = Date.parse('2026-08-01T04:00:00.000Z') // Jul 31 21:0
 const isSignedIn = computed(() => bypassAuth || Boolean(session.value?.user))
 const isAdmin = computed(() => bypassAuth || profile.value?.role === 'admin')
 const userId = computed(() => session.value?.user?.id ?? null)
+const currentUserDisplayName = computed(() => (
+  String(
+    profile.value?.display_name
+    || session.value?.user?.user_metadata?.display_name
+    || '',
+  ).trim()
+))
+const currentUserEmail = computed(() => (
+  String(profile.value?.email || session.value?.user?.email || '').trim()
+))
 
 const canLoadApp = computed(() => hasSupabaseConfig && isSignedIn.value)
 const hasMore = computed(() => Boolean(galleryCursor.value))
@@ -641,9 +652,10 @@ async function refreshEmbargoedCards() {
     item.embargoed_for_viewer = locked
 
     if (locked) continue
-    if (!item.owner_email) {
-      const ownerEmail = await resolveOwnerEmail(item.owner_id)
-      if (ownerEmail) item.owner_email = ownerEmail
+    if (!item.owner_email || !item.owner_display_name) {
+      const ownerProfile = await resolveOwnerProfile(item.owner_id)
+      if (ownerProfile.email) item.owner_email = ownerProfile.email
+      if (ownerProfile.displayName) item.owner_display_name = ownerProfile.displayName
     }
     if (!item.preview_url) {
       void signAndPatchPreview(item)
@@ -676,15 +688,34 @@ function canRemove(item) {
   return item.owner_id === userId.value
 }
 
-async function resolveOwnerEmail(ownerId) {
-  const existing = galleryItems.value.find((row) => row.owner_id === ownerId && row.owner_email)
-  if (existing?.owner_email) return existing.owner_email
+function normalizeGalleryOwner(item) {
+  if (!item) return item
+  if (item.owner_id !== userId.value) return item
+
+  return {
+    ...item,
+    owner_email: item.owner_email || currentUserEmail.value,
+    owner_display_name: item.owner_display_name || currentUserDisplayName.value,
+  }
+}
+
+async function resolveOwnerProfile(ownerId) {
+  const existing = galleryItems.value.find((row) => row.owner_id === ownerId && row.owner_display_name)
+  if (existing) {
+    return {
+      email: existing.owner_email || '',
+      displayName: existing.owner_display_name || '',
+    }
+  }
 
   try {
     const nextProfile = await withSessionRetry(() => fetchProfile(ownerId))
-    return nextProfile?.email || ''
+    return {
+      email: nextProfile?.email || '',
+      displayName: nextProfile?.display_name || '',
+    }
   } catch {
-    return ''
+    return { email: '', displayName: '' }
   }
 }
 
@@ -698,12 +729,13 @@ async function applyRealtimeInsert(payload) {
   const embargoedForViewer = row.owner_id !== userId.value
     && Boolean(revealAt)
     && (forceCensoredPreview.value || Date.now() < new Date(revealAt).getTime())
-  const ownerEmail = embargoedForViewer ? '' : await resolveOwnerEmail(row.owner_id)
+  const ownerProfile = embargoedForViewer ? { email: '', displayName: '' } : await resolveOwnerProfile(row.owner_id)
   const nextItem = {
     ...row,
     embargoed_for_viewer: embargoedForViewer,
     reveal_at: revealAt,
-    owner_email: ownerEmail,
+    owner_email: ownerProfile.email,
+    owner_display_name: ownerProfile.displayName,
     preview_url: '',
   }
 
@@ -1077,7 +1109,7 @@ async function loadGallery({ reset = false } = {}) {
     const cursor = reset ? null : galleryCursor.value
     const pageSize = reset ? INITIAL_PAGE_SIZE : LOAD_MORE_PAGE_SIZE
     const payload = await withSessionRetry(() => fetchGalleryFeed(cursor, pageSize))
-    const nextItems = (payload.items || []).map((item) => ({
+    const nextItems = (payload.items || []).map((item) => normalizeGalleryOwner({
       ...item,
       embargoed_for_viewer: item.owner_id !== userId.value
         && (forceCensoredPreview.value || Boolean(item.embargoed_for_viewer)),
@@ -1267,7 +1299,7 @@ function duplicateUploadMessage(file) {
     return `You uploaded this file on ${uploadLabel}.`
   }
 
-  const uploaderName = ownerEmail ? ownerEmail.split('@')[0] : 'Another friend'
+  const uploaderName = uploaderDisplayName(media, 'Another friend')
   return `${uploaderName} uploaded this file on ${uploadLabel}.`
 }
 
@@ -1295,12 +1327,14 @@ function injectUploadedMedia({ mediaId, row, mimeType }) {
 
   const ownerId = userId.value || session.value?.user?.id || ''
   const ownerEmail = profile.value?.email || session.value?.user?.email || ''
+  const ownerDisplayName = profile.value?.display_name || ''
   const nowIso = new Date().toISOString()
 
   const nextItem = {
     id: mediaId,
     owner_id: ownerId,
     owner_email: ownerEmail,
+    owner_display_name: ownerDisplayName,
     media_type: mediaTypeFromMime(mimeType),
     mime_type: mimeType,
     original_filename: String(row?.file?.name || 'Upload'),

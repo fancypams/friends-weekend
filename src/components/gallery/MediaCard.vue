@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import UploaderBadge from './UploaderBadge.vue'
+import { uploaderDisplayName } from '../../lib/uploaderDisplay'
 
 const props = defineProps({
   item: {
@@ -28,10 +29,7 @@ const props = defineProps({
 const emit = defineEmits(['open', 'remove', 'preview-error', 'preview-loaded'])
 
 const uploaderName = computed(() => {
-  if (props.item?.embargoed_for_viewer) return 'Anonymous'
-  const value = String(props.item?.owner_email || '').trim().toLowerCase()
-  if (!value) return 'Friend'
-  return value.split('@')[0].replace(/[._-]+/g, ' ')
+  return uploaderDisplayName(props.item)
 })
 
 const relativeTime = computed(() => {
