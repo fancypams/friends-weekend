@@ -367,71 +367,20 @@ async function canUseHostFamilyUploadWindow(admin: SupabaseClient, profile: Prof
   return (data ?? []).some((row) => normalizeText(row.family).toLowerCase() === family)
 }
 
-export async function resolveUploadWindow(admin: SupabaseClient, profile: ProfileRow, now = new Date()): Promise<UploadWindow> {
-  const rows = await fetchFlightRows()
-  const arrivingJourney = pickArrivingToSeattleJourney(rows, profile)
-  const departingJourney = pickDepartingHomeJourney(rows, profile)
-  if (!arrivingJourney && !departingJourney) {
-    if (await canUseHostFamilyUploadWindow(admin, profile)) {
-      return resolveNonTravelerUploadWindow(admin, rows, now)
-    }
-
-    return buildUnavailable('No itinerary to Seattle was found for this profile.')
-  }
-  if (!arrivingJourney) {
-    return buildUnavailable('No itinerary to Seattle was found for this profile.')
-  }
-  if (!departingJourney) {
-    return buildUnavailable('No return-home itinerary from Seattle was found for this profile.')
-  }
-
-  const firstInboundLeg = arrivingJourney[0]
-  const finalHomeLeg = departingJourney[departingJourney.length - 1]
-  const statuses = await loadStatuses(admin, [...arrivingJourney, ...departingJourney])
-  const firstInboundStatus = statuses.get(statusKey(firstInboundLeg))
-  const finalHomeStatus = statuses.get(statusKey(finalHomeLeg))
-
-  const scheduledDepartureAt = firstInboundStatus?.scheduled_departure_at
-    ?? parseSeattleLocalDateTime(firstInboundLeg.dateSort, firstInboundLeg.departSort)
-  const scheduledDeparture = parseIso(scheduledDepartureAt)
-  if (!scheduledDeparture) {
-    return buildUnavailable('Scheduled departure time is unavailable for the trip to Seattle.')
-  }
-
-  const scheduledOpenMs = scheduledDeparture.getTime() - OPEN_BEFORE_DEPARTURE_MS
-  const opensAtDate = new Date(Math.min(scheduledOpenMs, SEATTLE_UPLOAD_WINDOW_START_MS))
-  const actualFinalArrival = parseIso(finalHomeStatus?.actual_arrival_at)
-  const scheduledOrEstimatedArrival = parseIso(finalHomeStatus?.estimated_arrival_at)
-    ?? parseIso(finalHomeStatus?.scheduled_arrival_at)
-  const finalArrivalFallback = scheduledOrEstimatedArrival
-    ? new Date(scheduledOrEstimatedArrival.getTime() + MISSING_ACTUAL_ARRIVAL_CAP_MS)
-    : new Date(scheduledDeparture.getTime() + MISSING_ACTUAL_ARRIVAL_CAP_MS)
-  const closeBase = actualFinalArrival ?? finalArrivalFallback
-  const closesAtDate = new Date(closeBase.getTime() + CLOSE_AFTER_ARRIVAL_MS)
-  const nowMs = now.getTime()
-
-  let reason = 'Uploads are open.'
-  if (nowMs < opensAtDate.getTime()) {
-    reason = 'Uploads open when the Seattle media window starts.'
-  } else if (nowMs > closesAtDate.getTime()) {
-    reason = actualFinalArrival
-      ? 'Uploads closed 1 hour after you arrived at your home destination.'
-      : 'Uploads closed after the safety window because actual arrival was unavailable.'
-  } else if (!actualFinalArrival) {
-    reason = 'Uploads are open while we wait for your actual arrival home.'
-  }
-
+export async function resolveUploadWindow(
+  _admin: SupabaseClient,
+  _profile: ProfileRow,
+  _now = new Date(),
+): Promise<UploadWindow> {
   return {
-    allowed: nowMs >= opensAtDate.getTime() && nowMs <= closesAtDate.getTime(),
-    reason,
-    opensAt: opensAtDate.toISOString(),
-    closesAt: closesAtDate.toISOString(),
-    scheduledDepartureAt: scheduledDeparture.toISOString(),
-    actualFinalArrivalAt: actualFinalArrival?.toISOString() ?? null,
-    finalArrivalFallbackAt: actualFinalArrival ? null : finalArrivalFallback.toISOString(),
-    finalDestination: finalHomeLeg.destination,
-    source: actualFinalArrival
-      ? 'flight_status_cache'
-      : 'fallback_cap',
+    allowed: true,
+    reason: 'Uploads are open.',
+    opensAt: '2026-07-30T07:00:00.000Z',
+    closesAt: '2099-12-31T23:59:59.999Z',
+    scheduledDepartureAt: null,
+    actualFinalArrivalAt: null,
+    finalArrivalFallbackAt: null,
+    finalDestination: null,
+    source: null,
   }
 }
