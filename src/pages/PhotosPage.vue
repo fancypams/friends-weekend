@@ -87,6 +87,9 @@ const IMAGE_MAX_BYTES = 25 * 1024 * 1024
 const VIDEO_MAX_BYTES = 250 * 1024 * 1024
 const UPLOAD_RETRY_ATTEMPTS = 3
 const RETRY_BASE_MS = 700
+const UPLOAD_TICKET_TIMEOUT_MS = 20_000
+const UPLOAD_TRANSFER_TIMEOUT_MS = 90_000
+const UPLOAD_PROCESSING_TIMEOUT_MS = 45_000
 const AUTH_HEARTBEAT_MS = 30_000
 const AUTH_REFRESH_BUFFER_SECONDS = 90
 const SIGNED_URL_REFRESH_BUFFER_SECONDS = 45
@@ -370,6 +373,24 @@ async function convertHeicFileToJpeg(file) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function timeoutError(label, ms) {
+  const err = new Error(`${label} timed out after ${Math.round(ms / 1000)} seconds. Please retry.`)
+  err.code = 'request_timeout'
+  return err
+}
+
+function withTimeout(task, ms, label) {
+  let timer = null
+  return Promise.race([
+    Promise.resolve().then(task),
+    new Promise((_, reject) => {
+      timer = window.setTimeout(() => reject(timeoutError(label, ms)), ms)
+    }),
+  ]).finally(() => {
+    if (timer) window.clearTimeout(timer)
+  })
 }
 
 function isRetryableUploadError(err) {
@@ -1438,16 +1459,24 @@ async function startUpload() {
       row.error = ''
       await persistQueueItem(row)
 
-      const ticket = await withRetries(() => withSessionRetry(() => createUploadTicket({
-        filename: file.name,
-        mimeType,
-        bytes: file.size,
-      })))
+      const ticket = await withRetries(() => withTimeout(
+        () => withSessionRetry(() => createUploadTicket({
+          filename: file.name,
+          mimeType,
+          bytes: file.size,
+        })),
+        UPLOAD_TICKET_TIMEOUT_MS,
+        'Upload setup',
+      ))
 
       row.status = 'uploading'
       row.progress = 35
       await persistQueueItem(row)
-      await withRetries(() => uploadWithSignedTicket(ticket, file))
+      await withRetries(() => withTimeout(
+        () => uploadWithSignedTicket(ticket, file),
+        UPLOAD_TRANSFER_TIMEOUT_MS,
+        'File upload',
+      ))
 
       if (jpegDerivative) {
         if (!ticket.derivedUploads?.processed || !ticket.derivedUploads?.thumb) {
@@ -1456,14 +1485,28 @@ async function startUpload() {
 
         row.progress = 60
         await persistQueueItem(row)
-        await withRetries(() => uploadWithSignedUploadUrl(ticket.derivedUploads.processed, jpegDerivative))
-        await withRetries(() => uploadWithSignedUploadUrl(ticket.derivedUploads.thumb, jpegDerivative))
+        await withRetries(() => withTimeout(
+          () => uploadWithSignedUploadUrl(ticket.derivedUploads.processed, jpegDerivative),
+          UPLOAD_TRANSFER_TIMEOUT_MS,
+          'Processed image upload',
+        ))
+        row.progress = 70
+        await persistQueueItem(row)
+        await withRetries(() => withTimeout(
+          () => uploadWithSignedUploadUrl(ticket.derivedUploads.thumb, jpegDerivative),
+          UPLOAD_TRANSFER_TIMEOUT_MS,
+          'Thumbnail upload',
+        ))
       }
 
       row.status = 'processing'
       row.progress = 80
       await persistQueueItem(row)
-      await withRetries(() => withSessionRetry(() => completeUpload(ticket.mediaId)))
+      await withRetries(() => withTimeout(
+        () => withSessionRetry(() => completeUpload(ticket.mediaId)),
+        UPLOAD_PROCESSING_TIMEOUT_MS,
+        'Media processing',
+      ))
 
       injectUploadedMedia({
         mediaId: ticket.mediaId,

@@ -115,6 +115,8 @@ export async function getValidSession() {
   if (expiresSoon) {
     session = await refresh()
     if (!session) return null
+  } else {
+    return session
   }
 
   const probe = await withTimeout(
@@ -123,15 +125,10 @@ export async function getValidSession() {
     'Session check timed out. Please retry.',
   )
 
-  if (probe.error || !probe.data?.user) {
-    if (!isInvalidJwt(probe.error)) {
-      return session
-    }
+  if (!probe.error && probe.data?.user) return session
+  if (!isInvalidJwt(probe.error)) return session
 
-    session = await refresh()
-    if (!session) return null
-  }
-
+  session = await refresh()
   return session
 }
 
