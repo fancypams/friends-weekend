@@ -138,6 +138,7 @@ onUnmounted(() => {
         :src="mediaUrl"
         :alt="item.original_filename"
         class="viewer-media"
+        decoding="async"
         @click.stop
       />
 

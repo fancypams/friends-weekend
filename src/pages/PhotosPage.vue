@@ -984,7 +984,7 @@ async function loadViewerMedia(item, { force = false, variantOverride = '' } = {
   viewerMediaUrl.value = ''
 
   try {
-    const variant = variantOverride || (item.media_type === 'image' ? 'original' : 'processed')
+    const variant = variantOverride || 'processed'
     viewerVariant.value = variant
     const url = await getSignedUrlCached(item.id, variant, { force })
     if (loadToken !== viewerLoadToken) return

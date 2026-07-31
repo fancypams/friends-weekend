@@ -12,6 +12,7 @@ type SignUrlBody = {
 type MediaRow = {
   id: string
   owner_id: string
+  media_type: 'image' | 'video'
   status: 'uploading' | 'processing' | 'published' | 'failed' | 'removed'
   original_path: string
   processed_path: string | null
@@ -27,6 +28,31 @@ function resolvePath(media: MediaRow, variant: NonNullable<SignUrlBody['variant'
   if (variant === 'thumb') return media.thumbnail_path ?? media.processed_path ?? media.original_path
   if (variant === 'poster') return media.poster_path
   return null
+}
+
+function signedUrlOptions(media: MediaRow, variant: NonNullable<SignUrlBody['variant']>) {
+  if (media.media_type !== 'image') return undefined
+  if (variant === 'thumb') {
+    return {
+      transform: {
+        width: 480,
+        height: 360,
+        resize: 'cover' as const,
+        quality: 72,
+      },
+    }
+  }
+  if (variant === 'processed') {
+    return {
+      transform: {
+        width: 1800,
+        height: 1800,
+        resize: 'contain' as const,
+        quality: 82,
+      },
+    }
+  }
+  return undefined
 }
 
 Deno.serve(async (req) => {
@@ -59,7 +85,7 @@ Deno.serve(async (req) => {
 
   const { data: media, error: mediaErr } = await auth.admin
     .from('media_assets')
-    .select('id,owner_id,status,original_path,processed_path,thumbnail_path,poster_path,created_at,published_at')
+    .select('id,owner_id,media_type,status,original_path,processed_path,thumbnail_path,poster_path,created_at,published_at')
     .eq('id', mediaId)
     .maybeSingle<MediaRow>()
 
@@ -96,7 +122,7 @@ Deno.serve(async (req) => {
 
   const { data: signed, error: signedErr } = await auth.admin.storage
     .from(BUCKET)
-    .createSignedUrl(objectPath, SIGNED_URL_TTL_SECONDS)
+    .createSignedUrl(objectPath, SIGNED_URL_TTL_SECONDS, signedUrlOptions(media, variant))
 
   if (signedErr || !signed) {
     return serverError('Failed to create signed URL', signedErr?.message)
