@@ -3,8 +3,8 @@ import { BUCKET } from './constants.ts'
 import { buildDerivedPaths } from './media-paths.ts'
 import { audit } from './audit.ts'
 
-// This v1 processor publishes secure derivatives. HEIC/HEIF JPEG derivatives are
-// uploaded by the browser; other supported media uses copy-through publication.
+// Image derivatives are generated in the browser at upload time; videos use
+// copy-through publication for now.
 export type MediaAssetRow = {
   id: string
   owner_id: string
@@ -15,10 +15,6 @@ export type MediaAssetRow = {
   processed_path: string | null
   thumbnail_path: string | null
   poster_path: string | null
-}
-
-function isHeicImage(asset: Pick<MediaAssetRow, 'media_type' | 'mime_type'>) {
-  return asset.media_type === 'image' && (asset.mime_type === 'image/heic' || asset.mime_type === 'image/heif')
 }
 
 async function storageObjectExists(admin: SupabaseClient, path: string) {
@@ -93,27 +89,44 @@ export async function processOneMediaAsset(
     asset.original_path,
   )
 
-  if (isHeicImage(asset)) {
+  if (asset.media_type === 'image') {
     const processedObject = await storageObjectExists(admin, processedPath)
     if (processedObject.error) {
       await markProcessingFailed(admin, asset, actorId, 'verify_converted_processed', processedObject.error)
       return { ok: false as const, error: processedObject.error }
     }
 
-    let storedThumbPath: string | null = null
-    if (thumbPath) {
-      const thumbObject = await storageObjectExists(admin, thumbPath)
-      if (!thumbObject.error && thumbObject.exists) {
-        storedThumbPath = thumbPath
-      }
-    }
-
     if (!processedObject.exists) {
-      const message = 'Converted JPEG derivative is missing'
+      const message = 'Processed JPEG derivative is missing'
       await markProcessingFailed(admin, asset, actorId, 'verify_converted_processed', message, {
         mime_type: asset.mime_type,
         processed_path: processedPath,
-        thumbnail_path: storedThumbPath,
+        thumbnail_path: thumbPath,
+      })
+      return { ok: false as const, error: message }
+    }
+
+    if (!thumbPath) {
+      const message = 'Thumbnail derivative path is missing'
+      await markProcessingFailed(admin, asset, actorId, 'verify_converted_thumb', message, {
+        mime_type: asset.mime_type,
+        processed_path: processedPath,
+      })
+      return { ok: false as const, error: message }
+    }
+
+    const thumbObject = await storageObjectExists(admin, thumbPath)
+    if (thumbObject.error) {
+      await markProcessingFailed(admin, asset, actorId, 'verify_converted_thumb', thumbObject.error)
+      return { ok: false as const, error: thumbObject.error }
+    }
+
+    if (!thumbObject.exists) {
+      const message = 'Thumbnail JPEG derivative is missing'
+      await markProcessingFailed(admin, asset, actorId, 'verify_converted_thumb', message, {
+        mime_type: asset.mime_type,
+        processed_path: processedPath,
+        thumbnail_path: thumbPath,
       })
       return { ok: false as const, error: message }
     }
@@ -123,7 +136,7 @@ export async function processOneMediaAsset(
       .update({
         status: 'published',
         processed_path: processedPath,
-        thumbnail_path: storedThumbPath,
+        thumbnail_path: thumbPath,
         poster_path: posterPath,
         failure_reason: null,
         processed_at: new Date().toISOString(),
@@ -140,9 +153,9 @@ export async function processOneMediaAsset(
         media_type: asset.media_type,
         mime_type: asset.mime_type,
         processed_path: processedPath,
-        thumbnail_path: storedThumbPath,
+        thumbnail_path: thumbPath,
         poster_path: posterPath,
-        pipeline_mode: 'client-heic-to-jpeg',
+        pipeline_mode: 'client-image-derivatives',
       },
     })
 

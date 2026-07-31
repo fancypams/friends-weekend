@@ -24,9 +24,9 @@ export function buildDerivedPaths(
   mimeType: string,
   originalPath?: string,
 ) {
-  const derivedExt = mediaType === 'image' && (mimeType === 'image/heic' || mimeType === 'image/heif')
+  const derivedExt = mediaType === 'image'
     ? 'jpg'
-    : FILE_EXT_BY_MIME[mimeType] ?? (mediaType === 'image' ? 'jpg' : 'mp4')
+    : FILE_EXT_BY_MIME[mimeType] ?? 'mp4'
   const sourceName = String(originalPath || '').split('/').pop() || ''
   const safeSource = sanitizeFilename(sourceName)
   const fallbackBase = mediaType === 'image' ? 'image' : 'video'

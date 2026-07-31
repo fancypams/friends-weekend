@@ -26,9 +26,13 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  variant: {
+    type: String,
+    default: 'processed',
+  },
 })
 
-const emit = defineEmits(['close', 'next', 'prev', 'media-error'])
+const emit = defineEmits(['close', 'next', 'prev', 'media-error', 'load-original'])
 
 const touchStartX = ref(null)
 const imageReady = ref(false)
@@ -37,6 +41,7 @@ let imagePreloadToken = 0
 
 const isImageItem = computed(() => props.item?.media_type === 'image')
 const showImageSkeleton = computed(() => props.loading || (isImageItem.value && imagePreloading.value))
+const canLoadOriginal = computed(() => isImageItem.value && props.variant !== 'original')
 
 function onTouchStart(event) {
   touchStartX.value = event.touches?.[0]?.clientX ?? null
@@ -129,6 +134,15 @@ onUnmounted(() => {
 <template>
   <div v-if="open && item" class="viewer-overlay" role="dialog" aria-modal="true" @click.self="emit('close')">
     <button class="close-btn" type="button" aria-label="Close viewer" @click="emit('close')">×</button>
+    <button
+      v-if="canLoadOriginal"
+      class="original-btn"
+      type="button"
+      :disabled="loading"
+      @click.stop="emit('load-original')"
+    >
+      Original
+    </button>
 
     <div class="viewer-body" @touchstart="onTouchStart" @touchend="onTouchEnd" @click="emit('close')">
       <div v-if="showImageSkeleton" class="media-skeleton" aria-hidden="true"></div>
@@ -221,7 +235,8 @@ onUnmounted(() => {
   text-shadow: 0 2px 6px color-mix(in srgb, var(--forest) 55%, transparent);
 }
 
-.close-btn {
+.close-btn,
+.original-btn {
   position: absolute;
   z-index: 1;
   border: 1px solid color-mix(in srgb, var(--bg-white) 50%, transparent);
@@ -244,6 +259,21 @@ onUnmounted(() => {
 .close-btn {
   top: calc(10px + env(safe-area-inset-top, 0px));
   right: calc(14px + env(safe-area-inset-right, 0px));
+}
+
+.original-btn {
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  left: calc(14px + env(safe-area-inset-left, 0px));
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.original-btn:disabled {
+  cursor: progress;
+  opacity: 0.64;
 }
 
 @keyframes shimmer {

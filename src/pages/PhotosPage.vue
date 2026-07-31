@@ -90,6 +90,8 @@ const RETRY_BASE_MS = 700
 const UPLOAD_TICKET_TIMEOUT_MS = 20_000
 const UPLOAD_TRANSFER_TIMEOUT_MS = 90_000
 const UPLOAD_PROCESSING_TIMEOUT_MS = 45_000
+const THUMB_DERIVATIVE = { width: 480, height: 360, fit: 'cover', quality: 0.72, suffix: 'thumb' }
+const VIEWER_DERIVATIVE = { width: 1800, height: 1800, fit: 'contain', quality: 0.82, suffix: 'viewer' }
 const AUTH_HEARTBEAT_MS = 30_000
 const AUTH_REFRESH_BUFFER_SECONDS = 90
 const SIGNED_URL_REFRESH_BUFFER_SECONDS = 45
@@ -277,12 +279,12 @@ function isHeicMime(mimeType) {
   return mimeType === 'image/heic' || mimeType === 'image/heif'
 }
 
-function jpegFilenameFrom(name) {
+function jpegFilenameFrom(name, suffix = '') {
   const base = String(name || 'upload')
     .trim()
     .replace(/\.[^.]+$/, '')
     || 'upload'
-  return `${base}.jpg`
+  return `${base}${suffix ? `-${suffix}` : ''}.jpg`
 }
 
 function canvasToJpegBlob(canvas, quality = 0.9) {
@@ -297,9 +299,9 @@ function canvasToJpegBlob(canvas, quality = 0.9) {
   })
 }
 
-function loadImageElement(file) {
+function loadImageElement(fileOrBlob) {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file)
+    const url = URL.createObjectURL(fileOrBlob)
     const img = new Image()
     img.onload = () => {
       URL.revokeObjectURL(url)
@@ -313,62 +315,100 @@ function loadImageElement(file) {
   })
 }
 
-async function convertHeicFileToJpeg(file) {
-  if (typeof document === 'undefined') {
-    throw new Error('HEIC conversion is unavailable in this browser.')
-  }
-
-  const fileName = jpegFilenameFrom(file.name)
+async function decodeImageSource(file) {
   let source = null
   try {
     if (typeof createImageBitmap === 'function') {
-      source = await createImageBitmap(file)
+      source = await createImageBitmap(file, { imageOrientation: 'from-image' })
     }
   } catch {
     source = null
   }
 
-  if (!source) {
-    try {
-      source = await loadImageElement(file)
-    } catch {
-      const { heicTo } = await import('heic-to')
-      const jpeg = await heicTo({
-        blob: file,
-        type: 'image/jpeg',
-        quality: 0.9,
-      })
-      return new File([jpeg], fileName, {
-        type: 'image/jpeg',
-        lastModified: Number(file.lastModified || Date.now()),
-      })
+  if (source) return source
+
+  try {
+    return await loadImageElement(file)
+  } catch {
+    if (!isHeicMime(normalizedMime(file))) {
+      throw new Error('This browser could not read the image.')
     }
+  }
+
+  const { heicTo } = await import('heic-to')
+  const jpeg = await heicTo({
+    blob: file,
+    type: 'image/jpeg',
+    quality: VIEWER_DERIVATIVE.quality,
+  })
+
+  try {
+    if (typeof createImageBitmap === 'function') {
+      return await createImageBitmap(jpeg, { imageOrientation: 'from-image' })
+    }
+  } catch {
+    // Fall back to an image element below.
+  }
+
+  return loadImageElement(jpeg)
+}
+
+function releaseImageSource(source) {
+  source?.close?.()
+}
+
+async function createImageDerivativeFromSource(source, file, options) {
+  if (typeof document === 'undefined') {
+    throw new Error('Image resizing is unavailable in this browser.')
   }
 
   const width = Number(source.width || source.naturalWidth || 0)
   const height = Number(source.height || source.naturalHeight || 0)
   if (!width || !height) {
-    source.close?.()
-    throw new Error('Could not read HEIC image dimensions.')
+    throw new Error('Could not read image dimensions.')
   }
 
   const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
+  const maxWidth = Number(options.width || width)
+  const maxHeight = Number(options.height || height)
+  const cover = options.fit === 'cover'
+  const scale = cover
+    ? Math.max(maxWidth / width, maxHeight / height)
+    : Math.min(maxWidth / width, maxHeight / height, 1)
+  const targetWidth = cover ? maxWidth : Math.max(1, Math.round(width * scale))
+  const targetHeight = cover ? maxHeight : Math.max(1, Math.round(height * scale))
+  const drawWidth = width * scale
+  const drawHeight = height * scale
+  const dx = (targetWidth - drawWidth) / 2
+  const dy = (targetHeight - drawHeight) / 2
+
+  canvas.width = targetWidth
+  canvas.height = targetHeight
   const context = canvas.getContext('2d')
   if (!context) {
-    source.close?.()
-    throw new Error('HEIC conversion is unavailable in this browser.')
+    throw new Error('Image resizing is unavailable in this browser.')
   }
 
-  context.drawImage(source, 0, 0, width, height)
-  source.close?.()
+  context.fillStyle = '#fff'
+  context.fillRect(0, 0, targetWidth, targetHeight)
+  context.drawImage(source, dx, dy, drawWidth, drawHeight)
 
-  const blob = await canvasToJpegBlob(canvas)
-  return new File([blob], fileName, {
+  const blob = await canvasToJpegBlob(canvas, Number(options.quality || 0.82))
+  return new File([blob], jpegFilenameFrom(file.name, options.suffix), {
     type: 'image/jpeg',
     lastModified: Number(file.lastModified || Date.now()),
   })
+}
+
+async function createImageDerivatives(file) {
+  const source = await decodeImageSource(file)
+  try {
+    const processed = await createImageDerivativeFromSource(source, file, VIEWER_DERIVATIVE)
+    const thumb = await createImageDerivativeFromSource(source, file, THUMB_DERIVATIVE)
+    return { processed, thumb }
+  } finally {
+    releaseImageSource(source)
+  }
 }
 
 function sleep(ms) {
@@ -1040,6 +1080,11 @@ function handleViewerMediaError() {
   void loadViewerMedia(viewerItem.value, { force: true })
 }
 
+function loadOriginalViewerMedia() {
+  if (!viewerItem.value || viewerItem.value.media_type !== 'image') return
+  void loadViewerMedia(viewerItem.value, { force: true, variantOverride: 'original' })
+}
+
 function decodeBase64Url(input) {
   const raw = String(input || '').trim()
   if (!raw) return ''
@@ -1445,17 +1490,17 @@ async function startUpload() {
     queuedSignaturesInRun.add(signature)
 
     try {
-      let jpegDerivative = null
-      if (isHeicMime(mimeType)) {
+      let imageDerivatives = null
+      if (mimeType.startsWith('image/')) {
         row.status = 'requesting-ticket'
         row.progress = 15
         row.error = ''
         await persistQueueItem(row)
-        jpegDerivative = await convertHeicFileToJpeg(file)
+        imageDerivatives = await createImageDerivatives(file)
       }
 
       row.status = 'requesting-ticket'
-      row.progress = jpegDerivative ? 25 : 10
+      row.progress = imageDerivatives ? 25 : 10
       row.error = ''
       await persistQueueItem(row)
 
@@ -1478,22 +1523,22 @@ async function startUpload() {
         'File upload',
       ))
 
-      if (jpegDerivative) {
+      if (imageDerivatives) {
         if (!ticket.derivedUploads?.processed || !ticket.derivedUploads?.thumb) {
-          throw new Error('HEIC derivative upload target is missing')
+          throw new Error('Image derivative upload target is missing')
         }
 
         row.progress = 60
         await persistQueueItem(row)
         await withRetries(() => withTimeout(
-          () => uploadWithSignedUploadUrl(ticket.derivedUploads.processed, jpegDerivative),
+          () => uploadWithSignedUploadUrl(ticket.derivedUploads.processed, imageDerivatives.processed),
           UPLOAD_TRANSFER_TIMEOUT_MS,
           'Processed image upload',
         ))
         row.progress = 70
         await persistQueueItem(row)
         await withRetries(() => withTimeout(
-          () => uploadWithSignedUploadUrl(ticket.derivedUploads.thumb, jpegDerivative),
+          () => uploadWithSignedUploadUrl(ticket.derivedUploads.thumb, imageDerivatives.thumb),
           UPLOAD_TRANSFER_TIMEOUT_MS,
           'Thumbnail upload',
         ))
@@ -1839,10 +1884,12 @@ onUnmounted(() => {
       :media-url="viewerMediaUrl"
       :loading="viewerLoading"
       :error="viewerError"
+      :variant="viewerVariant"
       @close="closeViewer"
       @next="showNextViewerItem"
       @prev="showPrevViewerItem"
       @media-error="handleViewerMediaError"
+      @load-original="loadOriginalViewerMedia"
     />
 
     <input

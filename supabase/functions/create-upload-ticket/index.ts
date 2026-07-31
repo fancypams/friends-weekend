@@ -136,7 +136,7 @@ Deno.serve(async (req) => {
   const derivedPaths = buildDerivedPaths(auth.user.id, mediaId, mediaType, mimeType, objectPath)
 
   let derivedUploads = null
-  if (mediaType === 'image' && (mimeType === 'image/heic' || mimeType === 'image/heif')) {
+  if (mediaType === 'image') {
     const { data: processedUpload, error: processedUploadErr } = await auth.admin.storage
       .from(BUCKET)
       .createSignedUploadUrl(derivedPaths.processedPath)
