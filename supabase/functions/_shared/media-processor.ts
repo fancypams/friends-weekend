@@ -22,16 +22,18 @@ function isHeicImage(asset: Pick<MediaAssetRow, 'media_type' | 'mime_type'>) {
 }
 
 async function storageObjectExists(admin: SupabaseClient, path: string) {
-  const { data, error } = await admin
-    .schema('storage')
-    .from('objects')
-    .select('name')
-    .eq('bucket_id', BUCKET)
-    .eq('name', path)
-    .maybeSingle()
+  const slashIndex = path.lastIndexOf('/')
+  const folder = slashIndex >= 0 ? path.slice(0, slashIndex) : ''
+  const name = slashIndex >= 0 ? path.slice(slashIndex + 1) : path
+  const { data, error } = await admin.storage
+    .from(BUCKET)
+    .list(folder, {
+      limit: 1,
+      search: name,
+    })
 
   if (error) return { exists: false, error: error.message }
-  return { exists: Boolean(data), error: null }
+  return { exists: Boolean(data?.some((item) => item.name === name)), error: null }
 }
 
 async function markProcessingFailed(
