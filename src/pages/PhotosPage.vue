@@ -149,6 +149,7 @@ const uploadWindowClosesMs = computed(() => {
 const uploadsUnlocked = computed(() => {
   const opens = uploadWindowOpensMs.value
   const closes = uploadWindowClosesMs.value
+  if (uploadWindow.value?.allowed === true && opens && closes) return true
   if (!opens || !closes) return false
   return uploadClockMs.value >= opens && uploadClockMs.value <= closes
 })
@@ -2329,6 +2330,18 @@ h2 {
 
   .gallery-feed.mobile-grid .upload-card small {
     display: none;
+  }
+
+  .gallery-feed.mobile-grid .upload-card:disabled {
+    grid-column: 1 / -1;
+    aspect-ratio: auto;
+    min-height: 112px;
+  }
+
+  .gallery-feed.mobile-grid .upload-card:disabled small {
+    display: block;
+    max-width: 28rem;
+    margin-inline: auto;
   }
 
   .gallery-feed.mobile-grid .upload-card-icon {

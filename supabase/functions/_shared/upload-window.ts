@@ -200,7 +200,7 @@ async function fetchFlightRows() {
   ))
 }
 
-function candidateJourneys(rows: FlightRow[], profile: ProfileRow, directionNeedle: string) {
+function candidateJourneys(rows: FlightRow[], profile: ProfileRow, directionNeedle: string, requireFamily = true) {
   const family = normalizeText(profile.family).toLowerCase()
   if (!normalizeText(profile.display_name)) return []
 
@@ -208,7 +208,7 @@ function candidateJourneys(rows: FlightRow[], profile: ProfileRow, directionNeed
   for (const row of rows) {
     if (!row.direction.toLowerCase().includes(directionNeedle)) continue
     if (!travelerMatchesProfile(row, profile)) continue
-    if (family && row.family.toLowerCase() !== family) continue
+    if (requireFamily && family && row.family.toLowerCase() !== family) continue
 
     const key = [row.family, row.traveler, row.direction, row.homeAirport].join('||')
     grouped.set(key, [...(grouped.get(key) ?? []), row])
@@ -228,17 +228,17 @@ function candidateJourneys(rows: FlightRow[], profile: ProfileRow, directionNeed
 }
 
 function pickArrivingToSeattleJourney(rows: FlightRow[], profile: ProfileRow) {
-  const journeys = candidateJourneys(rows, profile, 'arriv')
-    .filter((legs) => legs[legs.length - 1] && SEATTLE_ORIGINS.has(legs[legs.length - 1].destination))
+  const pick = (requireFamily: boolean) => candidateJourneys(rows, profile, 'arriv', requireFamily)
+    .filter((legs) => legs[legs.length - 1] && SEATTLE_ORIGINS.has(legs[legs.length - 1].destination))[0] ?? null
 
-  return journeys[0] ?? null
+  return pick(true) ?? pick(false)
 }
 
 function pickDepartingHomeJourney(rows: FlightRow[], profile: ProfileRow) {
-  const journeys = candidateJourneys(rows, profile, 'depart')
-    .filter((legs) => legs[0] && SEATTLE_ORIGINS.has(legs[0].origin))
+  const pick = (requireFamily: boolean) => candidateJourneys(rows, profile, 'depart', requireFamily)
+    .filter((legs) => legs[0] && SEATTLE_ORIGINS.has(legs[0].origin))[0] ?? null
 
-  return journeys[0] ?? null
+  return pick(true) ?? pick(false)
 }
 
 function pickFirstArrivingToSeattleJourney(rows: FlightRow[]) {
