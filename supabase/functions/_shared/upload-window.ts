@@ -1,5 +1,6 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import type { ProfileRow } from './auth.ts'
+import { CAPTURE_WINDOW_END } from './capture-window.ts'
 
 const SHEET_ID = '10Vb7iKPjZC2THOPiMf50MtKMM5K3LQ70VTVdBCuSdlo'
 const SHEET_NAME = 'Flight Info'
@@ -39,6 +40,10 @@ type StatusRow = {
   actual_arrival_at: string | null
 }
 
+type AdminFamilyRow = {
+  family: string | null
+}
+
 type UploadWindow = {
   allowed: boolean
   reason: string
@@ -48,7 +53,7 @@ type UploadWindow = {
   actualFinalArrivalAt: string | null
   finalArrivalFallbackAt: string | null
   finalDestination: string | null
-  source: 'flight_status_cache' | 'flight_sheet' | 'fallback_cap' | null
+  source: 'flight_status_cache' | 'flight_sheet' | 'fallback_cap' | 'first_arriving_traveler' | null
 }
 
 function normalizeText(value: unknown) {
@@ -218,6 +223,31 @@ function pickDepartingHomeJourney(rows: FlightRow[], profile: ProfileRow) {
   return journeys[0] ?? null
 }
 
+function pickFirstArrivingToSeattleJourney(rows: FlightRow[]) {
+  const grouped = new Map<string, FlightRow[]>()
+
+  for (const row of rows) {
+    if (!row.direction.toLowerCase().includes('arriv')) continue
+    if (!normalizeText(row.traveler)) continue
+
+    const key = [row.family, row.traveler, row.direction, row.homeAirport].join('||')
+    grouped.set(key, [...(grouped.get(key) ?? []), row])
+  }
+
+  return [...grouped.values()]
+    .map((legs) => legs.sort((a, b) => {
+      const left = `${a.dateSort}T${a.departSort}`
+      const right = `${b.dateSort}T${b.departSort}`
+      return left.localeCompare(right)
+    }))
+    .filter((legs) => legs[legs.length - 1] && SEATTLE_ORIGINS.has(legs[legs.length - 1].destination))
+    .sort((a, b) => {
+      const left = `${a[0].dateSort}T${a[0].departSort}`
+      const right = `${b[0].dateSort}T${b[0].departSort}`
+      return left.localeCompare(right)
+    })[0] ?? null
+}
+
 async function loadStatuses(admin: SupabaseClient, legs: FlightRow[]) {
   if (legs.length === 0) return new Map<string, StatusRow>()
 
@@ -260,10 +290,76 @@ function buildUnavailable(reason: string): UploadWindow {
   }
 }
 
+async function resolveNonTravelerUploadWindow(admin: SupabaseClient, rows: FlightRow[], now: Date): Promise<UploadWindow> {
+  const firstArrivingJourney = pickFirstArrivingToSeattleJourney(rows)
+  if (!firstArrivingJourney) {
+    return buildUnavailable('No Seattle arrivals were found for this trip.')
+  }
+
+  const firstInboundLeg = firstArrivingJourney[0]
+  const statuses = await loadStatuses(admin, [firstInboundLeg])
+  const firstInboundStatus = statuses.get(statusKey(firstInboundLeg))
+  const scheduledDepartureAt = firstInboundStatus?.scheduled_departure_at
+    ?? parseSeattleLocalDateTime(firstInboundLeg.dateSort, firstInboundLeg.departSort)
+  const scheduledDeparture = parseIso(scheduledDepartureAt)
+  if (!scheduledDeparture) {
+    return buildUnavailable('Scheduled departure time is unavailable for the first Seattle arrival.')
+  }
+
+  const scheduledOpenMs = scheduledDeparture.getTime() - OPEN_BEFORE_DEPARTURE_MS
+  const opensAtDate = new Date(Math.min(scheduledOpenMs, SEATTLE_UPLOAD_WINDOW_START_MS))
+  const closesAtDate = CAPTURE_WINDOW_END
+  const nowMs = now.getTime()
+
+  let reason = 'Uploads are open.'
+  if (nowMs < opensAtDate.getTime()) {
+    reason = 'Uploads open when the first arriving traveler can upload.'
+  } else if (nowMs > closesAtDate.getTime()) {
+    reason = 'Uploads closed when the Seattle media window ended.'
+  }
+
+  return {
+    allowed: nowMs >= opensAtDate.getTime() && nowMs <= closesAtDate.getTime(),
+    reason,
+    opensAt: opensAtDate.toISOString(),
+    closesAt: closesAtDate.toISOString(),
+    scheduledDepartureAt: scheduledDeparture.toISOString(),
+    actualFinalArrivalAt: null,
+    finalArrivalFallbackAt: null,
+    finalDestination: null,
+    source: 'first_arriving_traveler',
+  }
+}
+
+async function canUseHostFamilyUploadWindow(admin: SupabaseClient, profile: ProfileRow) {
+  if (profile.role === 'admin') return true
+
+  const family = normalizeText(profile.family).toLowerCase()
+  if (!family) return false
+
+  const { data, error } = await admin
+    .from('profiles')
+    .select('family')
+    .eq('active', true)
+    .eq('role', 'admin')
+    .returns<AdminFamilyRow[]>()
+
+  if (error) throw new Error(error.message)
+
+  return (data ?? []).some((row) => normalizeText(row.family).toLowerCase() === family)
+}
+
 export async function resolveUploadWindow(admin: SupabaseClient, profile: ProfileRow, now = new Date()): Promise<UploadWindow> {
   const rows = await fetchFlightRows()
   const arrivingJourney = pickArrivingToSeattleJourney(rows, profile)
   const departingJourney = pickDepartingHomeJourney(rows, profile)
+  if (!arrivingJourney && !departingJourney) {
+    if (await canUseHostFamilyUploadWindow(admin, profile)) {
+      return resolveNonTravelerUploadWindow(admin, rows, now)
+    }
+
+    return buildUnavailable('No itinerary to Seattle was found for this profile.')
+  }
   if (!arrivingJourney) {
     return buildUnavailable('No itinerary to Seattle was found for this profile.')
   }

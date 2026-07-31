@@ -21,8 +21,7 @@ const emit = defineEmits(['uploadClick'])
       Be the first to add a photo or video from Seattle.
     </p>
     <p v-else>
-      Your upload window opens during the Seattle media window and closes 1 hour after you arrive back at your home
-      destination.
+      Your upload window opens when the first arriving traveler can share and closes after your trip window ends.
     </p>
     <button class="btn primary" type="button" :disabled="!uploadEnabled" @click="emit('uploadClick')">
       {{ uploadEnabled ? 'Upload First Media' : 'Uploads Locked' }}
