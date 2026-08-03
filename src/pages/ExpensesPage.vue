@@ -22,6 +22,7 @@ const loading = ref(true)
 const listError = ref(null)
 const expenses = ref([])
 const deletingId = ref(null)
+const currentUserId = ref('')
 
 const formDate = ref(today)
 const formDescription = ref('')
@@ -142,6 +143,10 @@ function clearFieldError(field) {
   }
 }
 
+function canDeleteExpense(row) {
+  return Boolean(row?.created_by && currentUserId.value && row.created_by === currentUserId.value)
+}
+
 async function loadExpenses() {
   loading.value = true
   listError.value = null
@@ -169,13 +174,14 @@ async function loadExpenses() {
   loading.value = false
 }
 
-async function loadProfileFamily() {
+async function loadCurrentUserProfile() {
   if (!supabase) return
 
   try {
     const { data: sessionData } = await supabase.auth.getSession()
     const userId = sessionData.session?.user?.id
     if (!userId) return
+    currentUserId.value = userId
 
     const { data: profile } = await supabase
       .from('profiles')
@@ -238,17 +244,26 @@ async function handleSubmit() {
 
 async function handleDelete(row) {
   if (!supabase || deletingId.value) return
+  if (!canDeleteExpense(row)) {
+    submitError.value = 'Only the person who added an expense can remove it.'
+    return
+  }
 
   deletingId.value = row.id
   submitError.value = null
 
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('expenses')
       .delete()
       .eq('id', row.id)
+      .select('id')
+      .maybeSingle()
 
     if (error) throw error
+    if (!data?.id) {
+      throw new Error('Could not remove that expense. Refresh and try again.')
+    }
 
     expenses.value = expenses.value.filter((expense) => expense.id !== row.id)
   } catch (err) {
@@ -262,7 +277,7 @@ async function handleDelete(row) {
 onMounted(async () => {
   await Promise.all([
     loadExpenses(),
-    loadProfileFamily(),
+    loadCurrentUserProfile(),
   ])
 })
 </script>
@@ -435,8 +450,9 @@ onMounted(async () => {
             <button
               class="delete-btn"
               type="button"
-              :disabled="deletingId !== null"
+              :disabled="deletingId !== null || !canDeleteExpense(row)"
               :aria-label="`Remove ${row.description}`"
+              :title="canDeleteExpense(row) ? `Remove ${row.description}` : 'Only the creator can remove this expense'"
               @click="handleDelete(row)"
             >
               <span v-if="deletingId === row.id" class="delete-spinner"></span>
