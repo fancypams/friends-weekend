@@ -28,6 +28,7 @@ const formDate = ref(today)
 const formDescription = ref('')
 const formAmount = ref('')
 const formFamily = ref('')
+const formSplitFamilies = ref([])
 const submitting = ref(false)
 const submitError = ref(null)
 const successMsg = ref(null)
@@ -46,8 +47,87 @@ const familyTotals = computed(() => {
   }))
 })
 
+const settlementRows = computed(() => {
+  const debts = new Map()
+
+  for (const row of expenses.value) {
+    const payer = row.paid_by_family
+    for (const share of allocatedShares(row)) {
+      if (share.family === payer || share.amountCents <= 0) continue
+      const key = debtKey(share.family, payer)
+      debts.set(key, (debts.get(key) || 0) + share.amountCents)
+    }
+  }
+
+  const rows = []
+  for (let i = 0; i < FAMILIES.length; i += 1) {
+    for (let j = i + 1; j < FAMILIES.length; j += 1) {
+      const a = FAMILIES[i]
+      const b = FAMILIES[j]
+      const aOwesB = debts.get(debtKey(a, b)) || 0
+      const bOwesA = debts.get(debtKey(b, a)) || 0
+      const net = aOwesB - bOwesA
+      if (!aOwesB && !bOwesA) continue
+
+      rows.push({
+        familyA: a,
+        familyB: b,
+        aOwesB,
+        bOwesA,
+        settlementFrom: net > 0 ? a : b,
+        settlementTo: net > 0 ? b : a,
+        settlementCents: Math.abs(net),
+      })
+    }
+  }
+
+  return rows.sort((a, b) => (
+    b.settlementCents - a.settlementCents
+    || (b.aOwesB + b.bOwesA) - (a.aOwesB + a.bOwesA)
+    || a.familyA.localeCompare(b.familyA)
+  ))
+})
+
 function formatCurrency(cents) {
   return currency.format(Number(cents || 0) / 100)
+}
+
+function debtKey(from, to) {
+  return `${from}=>${to}`
+}
+
+function splitFamiliesFor(row) {
+  const selected = Array.isArray(row?.split_families)
+    ? row.split_families.filter((family) => FAMILIES.includes(family))
+    : []
+  if (selected.length) return FAMILIES.filter((family) => selected.includes(family))
+  return [...FAMILIES]
+}
+
+function allocatedShares(row) {
+  const selected = splitFamiliesFor(row)
+  const amountCents = Number(row?.amount_cents || 0)
+  if (!selected.length || amountCents <= 0) return []
+
+  const base = Math.floor(amountCents / selected.length)
+  let remainder = amountCents % selected.length
+
+  return selected.map((family) => {
+    const amount = base + (remainder > 0 ? 1 : 0)
+    remainder -= 1
+    return {
+      family,
+      amountCents: amount,
+    }
+  })
+}
+
+function perFamilyLabel(row) {
+  const shares = allocatedShares(row)
+  if (!shares.length) return formatCurrency(0)
+  const amounts = [...new Set(shares.map((share) => share.amountCents))]
+  if (amounts.length === 1) return formatCurrency(amounts[0])
+  return `${formatCurrency(Math.min(...amounts))}-${formatCurrency(Math.max(...amounts))}`
 }
 
 function parseAmountCents(value) {
@@ -57,6 +137,42 @@ function parseAmountCents(value) {
   const amount = Number(normalized)
   if (!Number.isFinite(amount) || amount <= 0) return null
   return Math.round(amount * 100)
+}
+
+function isSplitFamilySelected(family) {
+  return formSplitFamilies.value.includes(family)
+}
+
+function setSplitFamilies(families) {
+  formSplitFamilies.value = FAMILIES.filter((family) => families.includes(family))
+}
+
+function ensurePayerInSplit() {
+  if (!FAMILIES.includes(formFamily.value)) return
+  if (formSplitFamilies.value.includes(formFamily.value)) return
+  setSplitFamilies([...formSplitFamilies.value, formFamily.value])
+}
+
+function toggleSplitFamily(family) {
+  if (!FAMILIES.includes(family)) return
+  if (family === formFamily.value) {
+    ensurePayerInSplit()
+    return
+  }
+
+  const next = formSplitFamilies.value.includes(family)
+    ? formSplitFamilies.value.filter((selected) => selected !== family)
+    : [...formSplitFamilies.value, family]
+
+  setSplitFamilies(next)
+  ensurePayerInSplit()
+  clearFieldError('split')
+}
+
+function handlePaidByChange() {
+  ensurePayerInSplit()
+  clearFieldError('family')
+  clearFieldError('split')
 }
 
 function sanitizeAmountInput(value) {
@@ -126,6 +242,12 @@ function validateExpenseForm() {
     errors.family = 'Choose who paid.'
   }
 
+  if (!formSplitFamilies.value.length) {
+    errors.split = 'Choose at least one family to split with.'
+  } else if (!formSplitFamilies.value.includes(formFamily.value)) {
+    errors.split = 'The paying family must be included.'
+  }
+
   fieldErrors.value = errors
 
   return {
@@ -160,7 +282,7 @@ async function loadExpenses() {
   try {
     const { data, error } = await supabase
       .from('expenses')
-      .select('id,expense_date,description,amount_cents,paid_by_family,created_by,created_at')
+      .select('id,expense_date,description,amount_cents,paid_by_family,split_families,created_by,created_at')
       .order('expense_date', { ascending: false })
       .order('created_at', { ascending: false })
 
@@ -191,6 +313,7 @@ async function loadCurrentUserProfile() {
 
     if (profile?.family && FAMILIES.includes(profile.family)) {
       formFamily.value = profile.family
+      setSplitFamilies([profile.family])
     }
   } catch (err) {
     console.error('[ExpensesPage] profile family', err)
@@ -223,6 +346,7 @@ async function handleSubmit() {
       description: validation.description,
       amount_cents: validation.amountCents,
       paid_by_family: formFamily.value,
+      split_families: formSplitFamilies.value,
       created_by: userId,
     })
 
@@ -231,6 +355,7 @@ async function handleSubmit() {
     successMsg.value = `${validation.description} added`
     formDescription.value = ''
     formAmount.value = ''
+    setSplitFamilies(formFamily.value ? [formFamily.value] : [])
     fieldErrors.value = {}
     await loadExpenses()
     window.setTimeout(() => { successMsg.value = null }, 4000)
@@ -393,7 +518,7 @@ onMounted(async () => {
               :disabled="submitting"
               :aria-invalid="Boolean(fieldErrors.family)"
               aria-describedby="expense-family-error"
-              @change="clearFieldError('family')"
+              @change="handlePaidByChange"
             >
               <option value="" disabled>Select...</option>
               <option v-for="family in FAMILIES" :key="family" :value="family">{{ family }}</option>
@@ -406,6 +531,37 @@ onMounted(async () => {
             >
               {{ fieldErrors.family || ' ' }}
             </p>
+          </div>
+        </div>
+
+        <div class="split-field">
+          <div class="split-head">
+            <span class="field-label">Split With</span>
+            <p
+              id="expense-split-error"
+              class="field-error split-error"
+              :class="{ 'field-error--hidden': !fieldErrors.split }"
+              aria-live="polite"
+            >
+              {{ fieldErrors.split || ' ' }}
+            </p>
+          </div>
+
+          <div class="split-options" role="group" aria-describedby="expense-split-error">
+            <label
+              v-for="family in FAMILIES"
+              :key="family"
+              class="split-option"
+              :class="{ 'split-option--locked': family === formFamily }"
+            >
+              <input
+                type="checkbox"
+                :checked="isSplitFamilySelected(family)"
+                :disabled="submitting || family === formFamily"
+                @change="toggleSplitFamily(family)"
+              />
+              <span>{{ family }}</span>
+            </label>
           </div>
         </div>
 
@@ -438,6 +594,8 @@ onMounted(async () => {
             <span>Date</span>
             <span>Description</span>
             <span>Paid By</span>
+            <span>Split With</span>
+            <span>Each</span>
             <span class="amount-cell">Amount</span>
             <span></span>
           </div>
@@ -446,6 +604,16 @@ onMounted(async () => {
             <span class="row-date">{{ row.expense_date }}</span>
             <span class="row-description">{{ row.description }}</span>
             <span class="row-family">{{ row.paid_by_family }}</span>
+            <span class="split-chips">
+              <span
+                v-for="family in splitFamiliesFor(row)"
+                :key="`${row.id}-${family}`"
+                class="split-chip"
+              >
+                {{ family }}
+              </span>
+            </span>
+            <span class="row-each">{{ perFamilyLabel(row) }}</span>
             <span class="row-amount amount-cell">{{ formatCurrency(row.amount_cents) }}</span>
             <button
               class="delete-btn"
@@ -460,6 +628,45 @@ onMounted(async () => {
                 <path d="M3 4h10M6 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M5 4l.5 8h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="settlement-section">
+        <h2 class="section-title">Who Owes Who</h2>
+
+        <div v-if="settlementRows.length === 0" class="empty-msg">
+          Nothing to settle yet.
+        </div>
+
+        <div v-else class="settlement-list">
+          <div
+            v-for="row in settlementRows"
+            :key="`${row.familyA}-${row.familyB}`"
+            class="settlement-row"
+          >
+            <div class="settlement-pair">
+              <span class="settlement-family">{{ row.familyA }}</span>
+              <span class="settlement-copy">and</span>
+              <span class="settlement-family">{{ row.familyB }}</span>
+            </div>
+
+            <div class="settlement-gross">
+              <span>{{ row.familyA }} owes {{ row.familyB }} {{ formatCurrency(row.aOwesB) }}</span>
+              <span>{{ row.familyB }} owes {{ row.familyA }} {{ formatCurrency(row.bOwesA) }}</span>
+            </div>
+
+            <div class="settlement-net">
+              <template v-if="row.settlementCents > 0">
+                <span class="settlement-family">{{ row.settlementFrom }}</span>
+                <span class="settlement-copy">settles with</span>
+                <span class="settlement-family">{{ row.settlementTo }}</span>
+                <span class="settlement-amount">{{ formatCurrency(row.settlementCents) }}</span>
+              </template>
+              <template v-else>
+                <span class="settlement-copy">Settled evenly</span>
+              </template>
+            </div>
           </div>
         </div>
       </section>
@@ -575,6 +782,52 @@ onMounted(async () => {
   grid-template-columns: 150px minmax(180px, 1fr) 130px 150px;
   gap: 16px;
   align-items: start;
+}
+
+.split-field {
+  margin-top: 4px;
+}
+
+.split-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.split-error {
+  min-height: 0;
+}
+
+.split-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.split-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid rgba(138, 122, 94, 0.5);
+  border-radius: 4px;
+  background: var(--parchment);
+  color: var(--forest);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.split-option input {
+  margin: 0;
+}
+
+.split-option--locked {
+  border-color: rgba(196, 120, 72, 0.45);
+  background: rgba(196, 120, 72, 0.08);
+  color: var(--terracotta);
+  cursor: default;
 }
 
 .field {
@@ -716,7 +969,7 @@ onMounted(async () => {
 .table-header,
 .table-row {
   display: grid;
-  grid-template-columns: 120px minmax(180px, 1fr) 130px 110px 36px;
+  grid-template-columns: 100px minmax(160px, 1fr) 110px minmax(150px, 1fr) 92px 110px 36px;
   align-items: center;
   gap: 12px;
 }
@@ -743,7 +996,8 @@ onMounted(async () => {
 }
 
 .row-date,
-.row-amount {
+.row-amount,
+.row-each {
   font-size: 13px;
   color: var(--driftwood);
 }
@@ -770,6 +1024,90 @@ onMounted(async () => {
   white-space: nowrap;
   display: inline-block;
   width: fit-content;
+}
+
+.split-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.split-chip {
+  display: inline-block;
+  width: fit-content;
+  border: 1px solid rgba(92, 138, 150, 0.25);
+  border-radius: 20px;
+  background: rgba(92, 138, 150, 0.08);
+  color: var(--steel-sky);
+  font-family: var(--font-sign);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+}
+
+.settlement-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.settlement-list {
+  background: var(--bg-white);
+  border-left: 4px solid var(--steel-sky);
+  border-radius: 0 6px 6px 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
+  overflow: hidden;
+}
+
+.settlement-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(260px, 1.2fr) minmax(260px, 1.2fr);
+  gap: 14px;
+  align-items: start;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.settlement-row:last-child {
+  border-bottom: none;
+}
+
+.settlement-family {
+  font-family: var(--font-sign);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--terracotta);
+}
+
+.settlement-pair,
+.settlement-net {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settlement-gross {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--driftwood);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.settlement-copy {
+  color: var(--driftwood);
+  font-size: 13px;
+}
+
+.settlement-amount {
+  font-weight: 700;
+  color: var(--forest);
+  white-space: nowrap;
 }
 
 .amount-cell {
@@ -891,6 +1229,8 @@ onMounted(async () => {
   .row-date,
   .row-description,
   .row-family,
+  .split-chips,
+  .row-each,
   .row-amount {
     grid-column: 1;
   }
@@ -905,8 +1245,13 @@ onMounted(async () => {
 
   .delete-btn {
     grid-column: 2;
-    grid-row: 1 / span 4;
+    grid-row: 1 / span 6;
     align-self: center;
+  }
+
+  .settlement-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 }
 </style>
