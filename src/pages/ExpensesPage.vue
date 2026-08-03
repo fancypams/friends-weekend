@@ -873,8 +873,14 @@ onMounted(async () => {
                 {{ family }}
               </span>
             </span>
-            <span class="row-each">{{ perFamilyLabel(row) }}</span>
-            <span class="row-amount amount-cell">{{ formatCurrency(row.amount_cents) }}</span>
+            <span class="row-each">
+              <span class="mobile-value-label">Each family</span>
+              <span>{{ perFamilyLabel(row) }}</span>
+            </span>
+            <span class="row-amount amount-cell">
+              <span class="mobile-value-label">Total</span>
+              <span>{{ formatCurrency(row.amount_cents) }}</span>
+            </span>
             <button
               class="delete-btn"
               type="button"
@@ -1369,6 +1375,10 @@ onMounted(async () => {
   color: var(--driftwood);
 }
 
+.mobile-value-label {
+  display: none;
+}
+
 .row-description {
   font-family: var(--font-display);
   font-size: 20px;
@@ -1749,6 +1759,29 @@ onMounted(async () => {
 
   .amount-cell {
     text-align: left;
+  }
+
+  .row-each,
+  .row-amount {
+    display: grid;
+    grid-template-columns: 112px auto;
+    align-items: baseline;
+    gap: 18px;
+    width: 100%;
+  }
+
+  .row-each {
+    margin-top: -4px;
+  }
+
+  .mobile-value-label {
+    display: inline;
+    font-family: var(--font-sign);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--driftwood);
   }
 
   .delete-btn {
