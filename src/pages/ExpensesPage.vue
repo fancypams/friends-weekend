@@ -21,8 +21,15 @@ const today = dateInputValue(new Date())
 const loading = ref(true)
 const listError = ref(null)
 const expenses = ref([])
+const settlements = ref([])
 const deletingId = ref(null)
+const deletingSettlementId = ref(null)
 const currentUserId = ref('')
+const currentUserFamily = ref('')
+const recordingSettlementKey = ref('')
+const uploadingSettlementKey = ref('')
+const updatingSettlementId = ref('')
+const proofError = ref(null)
 
 const formDate = ref(today)
 const formDescription = ref('')
@@ -49,6 +56,7 @@ const familyTotals = computed(() => {
 
 const settlementRows = computed(() => {
   const debts = new Map()
+  const paid = new Map()
 
   for (const row of expenses.value) {
     const payer = row.paid_by_family
@@ -59,6 +67,11 @@ const settlementRows = computed(() => {
     }
   }
 
+  for (const row of settlements.value) {
+    const key = debtKey(row.from_family, row.to_family)
+    paid.set(key, (paid.get(key) || 0) + Number(row.amount_cents || 0))
+  }
+
   const rows = []
   for (let i = 0; i < FAMILIES.length; i += 1) {
     for (let j = i + 1; j < FAMILIES.length; j += 1) {
@@ -66,17 +79,30 @@ const settlementRows = computed(() => {
       const b = FAMILIES[j]
       const aOwesB = debts.get(debtKey(a, b)) || 0
       const bOwesA = debts.get(debtKey(b, a)) || 0
-      const net = aOwesB - bOwesA
-      if (!aOwesB && !bOwesA) continue
+      const aPaidB = paid.get(debtKey(a, b)) || 0
+      const bPaidA = paid.get(debtKey(b, a)) || 0
+      const aRemainingB = Math.max(aOwesB - aPaidB, 0)
+      const bRemainingA = Math.max(bOwesA - bPaidA, 0)
+      const net = aRemainingB - bRemainingA
+      const pairSettlements = settlementsForPair(a, b)
+      if (!aOwesB && !bOwesA && !pairSettlements.length) continue
 
       rows.push({
         familyA: a,
         familyB: b,
         aOwesB,
         bOwesA,
+        aPaidB,
+        bPaidA,
+        aRemainingB,
+        bRemainingA,
+        totalSettlementCents: Math.abs(aOwesB - bOwesA),
+        paidCents: aPaidB + bPaidA,
+        remainingCents: Math.abs(net),
         settlementFrom: net > 0 ? a : b,
         settlementTo: net > 0 ? b : a,
         settlementCents: Math.abs(net),
+        settlements: pairSettlements,
       })
     }
   }
@@ -87,6 +113,15 @@ const settlementRows = computed(() => {
     || a.familyA.localeCompare(b.familyA)
   ))
 })
+
+function settlementsForPair(a, b) {
+  return settlements.value
+    .filter((row) => (
+      (row.from_family === a && row.to_family === b)
+      || (row.from_family === b && row.to_family === a)
+    ))
+    .sort((aRow, bRow) => new Date(bRow.created_at).getTime() - new Date(aRow.created_at).getTime())
+}
 
 function formatCurrency(cents) {
   return currency.format(Number(cents || 0) / 100)
@@ -269,6 +304,58 @@ function canDeleteExpense(row) {
   return Boolean(row?.created_by && currentUserId.value && row.created_by === currentUserId.value)
 }
 
+function currentSettlementKey(row) {
+  if (!row?.settlementFrom || !row?.settlementTo || !row?.settlementCents) return ''
+  return debtKey(row.settlementFrom, row.settlementTo)
+}
+
+function canRecordSettlement(row) {
+  return Boolean(
+    row?.settlementCents > 0
+    && currentUserFamily.value
+    && currentUserFamily.value === row.settlementFrom
+  )
+}
+
+function canUploadProof(row) {
+  return Boolean(row?.from_family && currentUserFamily.value === row.from_family)
+}
+
+function canMarkSettled(row) {
+  return Boolean(row?.to_family && currentUserFamily.value === row.to_family)
+}
+
+function canDeleteSettlement(row) {
+  return Boolean(row?.created_by && currentUserId.value && row.created_by === currentUserId.value)
+}
+
+function proofLabel(row) {
+  if (uploadingSettlementKey.value === row.id) return 'Uploading...'
+  return row.confirmation_path ? 'Replace Proof' : 'Upload Proof'
+}
+
+function settlementStatus(row) {
+  if (row.settled) return 'Settled'
+  if (row.confirmation_path) return 'Proof uploaded'
+  return 'Payment recorded'
+}
+
+function validProofFile(file) {
+  const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'])
+  return Boolean(file && allowed.has(file.type) && file.size > 0 && file.size <= 10 * 1024 * 1024)
+}
+
+function proofExtension(file) {
+  const byType = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/heic': 'heic',
+    'image/heif': 'heif',
+  }
+  return byType[file?.type] || 'jpg'
+}
+
 async function loadExpenses() {
   loading.value = true
   listError.value = null
@@ -280,14 +367,23 @@ async function loadExpenses() {
   }
 
   try {
-    const { data, error } = await supabase
+    const { data: expenseData, error: expenseError } = await supabase
       .from('expenses')
       .select('id,expense_date,description,amount_cents,paid_by_family,split_families,created_by,created_at')
       .order('expense_date', { ascending: false })
       .order('created_at', { ascending: false })
 
-    if (error) throw error
-    expenses.value = data || []
+    if (expenseError) throw expenseError
+
+    const { data: settlementData, error: settlementError } = await supabase
+      .from('expense_settlements')
+      .select('id,from_family,to_family,amount_cents,confirmation_path,settled,settled_by,settled_at,created_by,created_at')
+      .order('created_at', { ascending: false })
+
+    if (settlementError) throw settlementError
+
+    expenses.value = expenseData || []
+    settlements.value = settlementData || []
   } catch (err) {
     console.error('[ExpensesPage] load', err)
     listError.value = err.message || 'Could not load expenses'
@@ -312,6 +408,7 @@ async function loadCurrentUserProfile() {
       .maybeSingle()
 
     if (profile?.family && FAMILIES.includes(profile.family)) {
+      currentUserFamily.value = profile.family
       formFamily.value = profile.family
       setSplitFamilies([profile.family])
     }
@@ -397,6 +494,169 @@ async function handleDelete(row) {
   }
 
   deletingId.value = null
+}
+
+async function createSettlement(row) {
+  if (!supabase) throw new Error('Supabase is not configured')
+  if (!canRecordSettlement(row)) throw new Error('Only the paying family can record this payment.')
+
+  const key = currentSettlementKey(row)
+  recordingSettlementKey.value = key
+  proofError.value = null
+
+  const { data, error } = await supabase
+    .from('expense_settlements')
+    .insert({
+      from_family: row.settlementFrom,
+      to_family: row.settlementTo,
+      amount_cents: row.settlementCents,
+      created_by: currentUserId.value,
+    })
+    .select('id,from_family,to_family,amount_cents,confirmation_path,settled,settled_by,settled_at,created_by,created_at')
+    .single()
+
+  recordingSettlementKey.value = ''
+  if (error) throw error
+  settlements.value = [data, ...settlements.value]
+  return data
+}
+
+async function handleRecordSettlement(row) {
+  try {
+    await createSettlement(row)
+  } catch (err) {
+    console.error('[ExpensesPage] record settlement', err)
+    proofError.value = err.message || 'Could not record payment'
+    recordingSettlementKey.value = ''
+  }
+}
+
+async function handleProofSelected(row, settlement, event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+
+  if (!validProofFile(file)) {
+    proofError.value = 'Upload a JPG, PNG, WEBP, HEIC, or HEIF image under 10 MB.'
+    return
+  }
+
+  let target = settlement
+
+  try {
+    if (!target) {
+      target = await createSettlement(row)
+    }
+
+    if (!canUploadProof(target)) {
+      throw new Error('Only the paying family can upload payment confirmation.')
+    }
+
+    uploadingSettlementKey.value = target.id
+    proofError.value = null
+
+    const extension = proofExtension(file)
+    const path = `${target.from_family}/${target.to_family}/${target.id}/${crypto.randomUUID()}.${extension}`
+    const { error: uploadError } = await supabase.storage
+      .from('expense-confirmations')
+      .upload(path, file, {
+        contentType: file.type,
+        upsert: false,
+      })
+
+    if (uploadError) throw uploadError
+
+    const { data, error: updateError } = await supabase
+      .from('expense_settlements')
+      .update({ confirmation_path: path })
+      .eq('id', target.id)
+      .select('id,from_family,to_family,amount_cents,confirmation_path,settled,settled_by,settled_at,created_by,created_at')
+      .single()
+
+    if (updateError) throw updateError
+    settlements.value = settlements.value.map((item) => (item.id === data.id ? data : item))
+  } catch (err) {
+    console.error('[ExpensesPage] proof upload', err)
+    proofError.value = err.message || 'Could not upload proof'
+  }
+
+  uploadingSettlementKey.value = ''
+}
+
+async function handleOpenProof(row) {
+  if (!supabase || !row?.confirmation_path) return
+
+  try {
+    proofError.value = null
+    const { data, error } = await supabase.storage
+      .from('expense-confirmations')
+      .createSignedUrl(row.confirmation_path, 300)
+
+    if (error) throw error
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+  } catch (err) {
+    console.error('[ExpensesPage] open proof', err)
+    proofError.value = err.message || 'Could not open proof'
+  }
+}
+
+async function handleSettledChange(row, event) {
+  const checked = event.target.checked
+  if (!supabase || !canMarkSettled(row)) {
+    event.target.checked = row.settled
+    proofError.value = 'Only the family being paid can mark this settled.'
+    return
+  }
+
+  updatingSettlementId.value = row.id
+  proofError.value = null
+
+  try {
+    const { data, error } = await supabase
+      .from('expense_settlements')
+      .update({ settled: checked })
+      .eq('id', row.id)
+      .select('id,from_family,to_family,amount_cents,confirmation_path,settled,settled_by,settled_at,created_by,created_at')
+      .single()
+
+    if (error) throw error
+    settlements.value = settlements.value.map((item) => (item.id === data.id ? data : item))
+  } catch (err) {
+    console.error('[ExpensesPage] settle', err)
+    proofError.value = err.message || 'Could not update settlement'
+    event.target.checked = row.settled
+  }
+
+  updatingSettlementId.value = ''
+}
+
+async function handleDeleteSettlement(row) {
+  if (!supabase || deletingSettlementId.value) return
+  if (!canDeleteSettlement(row)) {
+    proofError.value = 'Only the person who recorded a payment can remove it.'
+    return
+  }
+
+  deletingSettlementId.value = row.id
+  proofError.value = null
+
+  try {
+    const { data, error } = await supabase
+      .from('expense_settlements')
+      .delete()
+      .eq('id', row.id)
+      .select('id')
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data?.id) throw new Error('Could not remove that payment. Refresh and try again.')
+    settlements.value = settlements.value.filter((item) => item.id !== row.id)
+  } catch (err) {
+    console.error('[ExpensesPage] delete settlement', err)
+    proofError.value = err.message || 'Could not remove payment'
+  }
+
+  deletingSettlementId.value = null
 }
 
 onMounted(async () => {
@@ -634,6 +894,7 @@ onMounted(async () => {
 
       <section class="settlement-section">
         <h2 class="section-title">Who Owes Who</h2>
+        <p v-if="proofError" class="form-error settlement-error">{{ proofError }}</p>
 
         <div v-if="settlementRows.length === 0" class="empty-msg">
           Nothing to settle yet.
@@ -659,13 +920,119 @@ onMounted(async () => {
             <div class="settlement-net">
               <template v-if="row.settlementCents > 0">
                 <span class="settlement-family">{{ row.settlementFrom }}</span>
-                <span class="settlement-copy">settles with</span>
+                <span class="settlement-copy">owes</span>
                 <span class="settlement-family">{{ row.settlementTo }}</span>
                 <span class="settlement-amount">{{ formatCurrency(row.settlementCents) }}</span>
               </template>
               <template v-else>
                 <span class="settlement-copy">Settled evenly</span>
               </template>
+            </div>
+
+            <div class="settlement-summary">
+              <span>Total net {{ formatCurrency(row.totalSettlementCents) }}</span>
+              <span>Paid {{ formatCurrency(row.paidCents) }}</span>
+              <span>Remaining {{ formatCurrency(row.remainingCents) }}</span>
+
+              <div
+                v-if="canRecordSettlement(row)"
+                class="settlement-actions"
+              >
+                <button
+                  v-if="row.settlementCents > 0"
+                  class="settlement-btn"
+                  type="button"
+                  :disabled="recordingSettlementKey === currentSettlementKey(row)"
+                  title="Record that this payment was received"
+                  @click="handleRecordSettlement(row)"
+                >
+                  <span v-if="recordingSettlementKey === currentSettlementKey(row)" class="delete-spinner"></span>
+                  {{ recordingSettlementKey === currentSettlementKey(row) ? 'Marking...' : 'Mark as Received' }}
+                </button>
+
+                <label
+                  v-if="row.settlementCents > 0"
+                  class="settlement-btn proof-upload"
+                  :class="{ 'settlement-btn--disabled': uploadingSettlementKey }"
+                  title="Upload proof for this payment"
+                >
+                  Upload Proof
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                    :disabled="Boolean(uploadingSettlementKey)"
+                    @change="handleProofSelected(row, null, $event)"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div v-if="row.settlements.length" class="payment-list">
+              <div
+                v-for="payment in row.settlements"
+                :key="payment.id"
+                class="payment-row"
+              >
+                <div class="payment-main">
+                  <span class="settlement-family">{{ payment.from_family }}</span>
+                  <span class="settlement-copy">paid</span>
+                  <span class="settlement-family">{{ payment.to_family }}</span>
+                  <span class="settlement-amount">{{ formatCurrency(payment.amount_cents) }}</span>
+                  <span class="payment-status">{{ settlementStatus(payment) }}</span>
+                </div>
+
+                <div class="payment-actions">
+                  <button
+                    v-if="payment.confirmation_path"
+                    class="text-btn"
+                    type="button"
+                    @click="handleOpenProof(payment)"
+                  >
+                    View Proof
+                  </button>
+
+                  <label
+                    class="text-btn proof-upload"
+                    :class="{ 'settlement-btn--disabled': !canUploadProof(payment) || uploadingSettlementKey === payment.id }"
+                    :title="canUploadProof(payment) ? 'Upload payment confirmation' : 'Only the paying family can update proof'"
+                  >
+                    {{ proofLabel(payment) }}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                      :disabled="!canUploadProof(payment) || uploadingSettlementKey === payment.id"
+                      @change="handleProofSelected(row, payment, $event)"
+                    />
+                  </label>
+
+                  <label
+                    class="settled-check"
+                    :title="canMarkSettled(payment) ? 'Mark payment settled' : 'Only the family being paid can mark this settled'"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="payment.settled"
+                      :disabled="!canMarkSettled(payment) || updatingSettlementId === payment.id"
+                      @change="handleSettledChange(payment, $event)"
+                    />
+                    <span>Settled</span>
+                  </label>
+
+                  <button
+                    class="delete-btn payment-delete"
+                    type="button"
+                    :disabled="deletingSettlementId !== null || !canDeleteSettlement(payment)"
+                    :aria-label="`Remove ${payment.from_family} payment to ${payment.to_family}`"
+                    :title="canDeleteSettlement(payment) ? 'Remove payment record' : 'Only the recorder can remove this payment'"
+                    @click="handleDeleteSettlement(payment)"
+                  >
+                    <span v-if="deletingSettlementId === payment.id" class="delete-spinner"></span>
+                    <svg v-else viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <path d="M3 4h10M6 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M5 4l.5 8h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1062,7 +1429,7 @@ onMounted(async () => {
 
 .settlement-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(260px, 1.2fr) minmax(260px, 1.2fr);
+  grid-template-columns: minmax(150px, 0.85fr) minmax(250px, 1.25fr) minmax(220px, 1fr) minmax(220px, auto);
   gap: 14px;
   align-items: start;
   padding: 14px 18px;
@@ -1108,6 +1475,147 @@ onMounted(async () => {
   font-weight: 700;
   color: var(--forest);
   white-space: nowrap;
+}
+
+.settlement-error {
+  margin: -8px 0 14px;
+}
+
+.settlement-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--driftwood);
+  font-size: 13px;
+  line-height: 1.35;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.settlement-actions,
+.payment-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settlement-actions {
+  justify-self: end;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.settlement-btn,
+.text-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 30px;
+  font-family: var(--font-sign);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
+}
+
+.settlement-btn {
+  padding: 8px 12px;
+  border: 1px solid rgba(196, 120, 72, 0.35);
+  background: rgba(196, 120, 72, 0.08);
+  color: var(--terracotta);
+}
+
+.text-btn {
+  padding: 6px 8px;
+  border: 1px solid rgba(92, 138, 150, 0.25);
+  background: rgba(92, 138, 150, 0.08);
+  color: var(--steel-sky);
+}
+
+.settlement-btn:hover:not(:disabled),
+.text-btn:hover:not(:disabled) {
+  border-color: currentColor;
+}
+
+.settlement-btn:disabled,
+.text-btn:disabled,
+.settlement-btn--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.proof-upload {
+  position: relative;
+  overflow: hidden;
+}
+
+.proof-upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.payment-list {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.payment-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, auto);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(92, 138, 150, 0.18);
+  background: rgba(92, 138, 150, 0.05);
+  border-radius: 4px;
+}
+
+.payment-main {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.payment-status {
+  font-size: 12px;
+  color: var(--driftwood);
+  font-style: italic;
+}
+
+.settled-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  color: var(--forest);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settled-check input {
+  margin: 0;
+}
+
+.settled-check:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.payment-delete {
+  width: 30px;
+  height: 30px;
 }
 
 .amount-cell {
@@ -1252,6 +1760,15 @@ onMounted(async () => {
   .settlement-row {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .settlement-actions,
+  .payment-actions {
+    justify-content: flex-start;
+  }
+
+  .payment-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>
