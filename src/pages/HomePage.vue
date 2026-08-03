@@ -7,6 +7,7 @@ const tripCards = [
   { to: '/itinerary', title: 'Itinerary',      sub: 'Day-by-day schedule',         color: '#A89955' },
   { to: '/pre-trip',  title: 'Pre-Trip Prep',  sub: 'Movies, music & more',        color: '#C87838' },
   { to: '/groceries', title: 'Groceries',      sub: 'Add to the shopping list',    color: '#C8A420' },
+  { to: '/expenses',  title: 'Expenses',       sub: 'Track shared costs',          color: '#5C8A96' },
 ]
 
 const extrasCards = [
@@ -34,7 +35,7 @@ const extrasCards = [
       <section class="home-section">
         <p class="section-label">Plan</p>
         <h2 class="section-heading">Trip Details</h2>
-        <div class="card-grid five-col">
+        <div class="card-grid six-col">
           <router-link
             v-for="card in tripCards"
             :key="card.to"
@@ -153,6 +154,10 @@ const extrasCards = [
   grid-template-columns: repeat(5, 1fr);
 }
 
+.six-col {
+  grid-template-columns: repeat(6, 1fr);
+}
+
 .two-col {
   grid-template-columns: repeat(2, 1fr);
 }
@@ -248,7 +253,8 @@ const extrasCards = [
    max-width: 100%;
   }
   .four-col,
-  .five-col {
+  .five-col,
+  .six-col {
     grid-template-columns: repeat(2, 1fr);
   }
 

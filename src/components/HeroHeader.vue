@@ -156,6 +156,7 @@ onBeforeUnmount(() => {
       <router-link to="/itinerary" class="nav-item" @click="menuOpen = false">Itinerary</router-link>
       <router-link to="/pre-trip" class="nav-item" @click="menuOpen = false">Pre-Trip Prep</router-link>
       <router-link to="/groceries" class="nav-item" @click="menuOpen = false">Groceries</router-link>
+      <router-link to="/expenses" class="nav-item" @click="menuOpen = false">Expenses</router-link>
       <router-link to="/photos" class="nav-item" @click="menuOpen = false">Photos</router-link>
       <button type="button" class="nav-item nav-extras-toggle" :class="{ open: extrasOpen }" @click="extrasOpen = !extrasOpen">
         Extras

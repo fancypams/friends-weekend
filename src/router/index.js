@@ -5,6 +5,7 @@ import ItineraryPage from '../components/Itinerary.vue'
 import PhotosPage from '../pages/PhotosPage.vue'
 import PreTripPage from '../pages/PreTripPage.vue'
 import GroceriesPage from '../pages/GroceriesPage.vue'
+import ExpensesPage from '../pages/ExpensesPage.vue'
 import WhaleSightingsPage from '../pages/WhaleSightingsPage.vue'
 import GhostStoriesPage from '../pages/GhostStoriesPage.vue'
 import FlightsPage from '../pages/FlightsPage.vue'
@@ -77,6 +78,7 @@ const router = createRouter({
     { path: '/photos', component: PhotosPage, meta: { requiresAuth: true, breadcrumb: 'Photos' } },
     { path: '/pre-trip', component: PreTripPage, meta: { requiresAuth: true, breadcrumb: 'Pre-Trip Prep' } },
     { path: '/groceries', component: GroceriesPage, meta: { requiresAuth: true, breadcrumb: 'Groceries' } },
+    { path: '/expenses', component: ExpensesPage, meta: { requiresAuth: true, breadcrumb: 'Expenses' } },
     { path: '/whales', component: WhaleSightingsPage, meta: { requiresAuth: true, breadcrumb: 'Whale Sightings' } },
     { path: '/ghost-stories', component: GhostStoriesPage, meta: { requiresAuth: true, breadcrumb: 'Ghost Stories' } },
     { path: '/flights', component: FlightsPage, meta: { requiresAuth: true, breadcrumb: 'Flights' } },
