@@ -1,5 +1,5 @@
 export const CAPTURE_WINDOW_START_ISO = '2026-07-30T07:00:00.000Z' // Jul 30 00:00 Seattle (PDT)
-export const CAPTURE_WINDOW_END_ISO = '2026-08-05T06:59:59.999Z' // Aug 4 23:59:59 Seattle (PDT)
+export const CAPTURE_WINDOW_END_ISO = '2026-08-10T06:59:59.999Z' // Aug 9 23:59:59 Seattle (PDT)
 
 export const CAPTURE_WINDOW_START = new Date(CAPTURE_WINDOW_START_ISO)
 export const CAPTURE_WINDOW_END = new Date(CAPTURE_WINDOW_END_ISO)
@@ -10,5 +10,5 @@ export function isWithinCaptureWindow(date: Date) {
 }
 
 export function captureWindowLabel() {
-  return 'Jul 30-Aug 4, 2026 (Seattle time)'
+  return 'Jul 30-Aug 9, 2026 (Seattle time)'
 }

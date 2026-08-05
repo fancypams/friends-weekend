@@ -109,7 +109,7 @@ Current processing pipeline publishes secure derivatives:
 - capture-window policy:
   - `admin` uploads are exempt
   - missing capture metadata is allowed
-  - non-admin uploads are rejected only when capture metadata is present and outside Jul 30-Aug 4, 2026 (Seattle time)
+  - non-admin uploads are rejected only when capture metadata is present and outside Jul 30-Aug 9, 2026 (Seattle time)
 
 If you need MP4 transcoding, EXIF stripping, or resized image thumbnails, plug those transformations into `functions/_shared/media-processor.ts` or move processing to a dedicated worker service.
 

@@ -372,11 +372,17 @@ export async function resolveUploadWindow(
   _profile: ProfileRow,
   _now = new Date(),
 ): Promise<UploadWindow> {
+  const nowMs = _now.getTime()
+  const opensAtDate = new Date(SEATTLE_UPLOAD_WINDOW_START_MS)
+  const closesAtDate = CAPTURE_WINDOW_END
+
   return {
-    allowed: true,
-    reason: 'Uploads are open.',
-    opensAt: '2026-07-30T07:00:00.000Z',
-    closesAt: '2099-12-31T23:59:59.999Z',
+    allowed: nowMs >= opensAtDate.getTime() && nowMs <= closesAtDate.getTime(),
+    reason: nowMs > closesAtDate.getTime()
+      ? 'Uploads closed when the Seattle media window ended.'
+      : 'Uploads are open.',
+    opensAt: opensAtDate.toISOString(),
+    closesAt: closesAtDate.toISOString(),
     scheduledDepartureAt: null,
     actualFinalArrivalAt: null,
     finalArrivalFallbackAt: null,

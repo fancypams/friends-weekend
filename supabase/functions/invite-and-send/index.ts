@@ -144,7 +144,7 @@ function buildEmailHtml(firstName: string, hostName: string, actionLink: string)
                   <li>Pre-Trip Prep (movies, music, and more)</li>
                   <li>Groceries + group updates</li>
                 </ul>
-                <p style="margin:0 0 16px 0;font-size:16px;line-height:1.7;color:#5e625e;">And yes, the <strong>Shared Media</strong> gallery is ready for chaos in the best way.<br>Upload photos/videos from <strong>July 31–Aug 4</strong>, and we’ll all see new drops each night at <strong>9:00 PM Pacific</strong>.</p>
+                <p style="margin:0 0 16px 0;font-size:16px;line-height:1.7;color:#5e625e;">And yes, the <strong>Shared Media</strong> gallery is ready for chaos in the best way.<br>Upload photos/videos through <strong>Sunday, Aug 9 at midnight Pacific</strong>, and we’ll all see new drops each night at <strong>9:00 PM Pacific</strong>.</p>
               </td>
             </tr>
             <tr>
@@ -180,7 +180,7 @@ function buildEmailText(firstName: string, hostName: string, actionLink: string)
     '- Groceries + group updates',
     '',
     'And yes, the Shared Media gallery is ready for chaos in the best way.',
-    'Upload photos/videos from July 31-Aug 4, and we\'ll all see new drops each night at 9:00 PM Pacific.',
+    'Upload photos/videos through Sunday, Aug 9 at midnight Pacific, and we\'ll all see new drops each night at 9:00 PM Pacific.',
     '',
     `Jump in: ${actionLink}`,
     '',
