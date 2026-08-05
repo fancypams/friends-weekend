@@ -1,6 +1,6 @@
 import * as tus from 'tus-js-client'
 import { bypassAuth, supabase, supabaseAnonKey, supabaseUrl } from './supabaseClient'
-import { callFunction, getValidSession } from './functionsApi'
+import { callFunction, callFunctionBlob, getValidSession } from './functionsApi'
 
 export async function fetchProfile(userId) {
   if (!supabase) throw new Error('Supabase is not configured')
@@ -127,6 +127,10 @@ export function signMediaUrl(mediaId, variant = 'processed') {
     method: 'POST',
     body: { mediaId, variant },
   })
+}
+
+export function downloadMediaArchive() {
+  return callFunctionBlob('download-media-archive')
 }
 
 export function removeMedia(mediaId) {

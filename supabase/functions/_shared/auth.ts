@@ -28,10 +28,64 @@ function getEnv(name: string) {
   return value
 }
 
+function readEnv(name: string) {
+  return String(Deno.env.get(name) ?? '').trim()
+}
+
+function decodeJwtRole(token: string) {
+  const payload = token.split('.')[1]
+  if (!payload) return null
+
+  try {
+    const padded = payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(payload.length / 4) * 4, '=')
+    const claims = JSON.parse(atob(padded)) as { role?: unknown }
+    return typeof claims.role === 'string' ? claims.role : null
+  } catch {
+    return null
+  }
+}
+
+function readNamedSecretKey(value: string) {
+  if (!value) return ''
+
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>
+    const defaultKey = parsed.default
+    if (typeof defaultKey === 'string' && defaultKey.trim()) return defaultKey.trim()
+
+    for (const candidate of Object.values(parsed)) {
+      if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
+    }
+  } catch {
+    return ''
+  }
+
+  return ''
+}
+
+function readAdminKey() {
+  for (const name of ['SUPABASE_SERVICE_ROLE_KEY', 'SERVICE_ROLE_KEY']) {
+    const value = readEnv(name)
+    if (value && decodeJwtRole(value) === 'service_role') return value
+  }
+
+  for (const name of ['SUPABASE_SECRET_KEYS', 'SECRET_KEYS']) {
+    const value = readNamedSecretKey(readEnv(name))
+    if (value) return value
+  }
+
+  for (const name of ['SUPABASE_SECRET_KEY', 'SECRET_KEY']) {
+    const value = readEnv(name)
+    if (value) return value
+  }
+
+  throw new Error('Missing Supabase admin key')
+}
+
 export function createAdminClient() {
   const supabaseUrl = getEnv('SUPABASE_URL')
-  const serviceRole = getEnv('SUPABASE_SERVICE_ROLE_KEY')
-  return createClient(supabaseUrl, serviceRole, {
+  const adminKey = readAdminKey()
+  return createClient(supabaseUrl, adminKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

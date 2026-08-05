@@ -82,6 +82,15 @@ function appendTelemetryContextToRedirect(redirectTo: string, requestId: string,
   return `${bareBase}?${params.toString()}${hash}`
 }
 
+async function optionalTelemetrySignature(requestId: string, requestTs: string) {
+  try {
+    return await signTelemetryContext(requestId, requestTs)
+  } catch (err) {
+    console.warn('[request-magic-link] telemetry signing skipped', err instanceof Error ? err.message : String(err))
+    return ''
+  }
+}
+
 function requireEnv(name: string) {
   const value = String(Deno.env.get(name) ?? '').trim()
   if (!value) throw new Error(`Missing env ${name}`)
@@ -191,7 +200,7 @@ Deno.serve(async (req) => {
   const email = normalizeEmail(String(payload.email ?? ''))
   const requestId = normalizeRequestId(payload.request_id)
   const requestTs = String(Math.floor(Date.now() / 1000))
-  const requestSig = await signTelemetryContext(requestId, requestTs)
+  const requestSig = await optionalTelemetrySignature(requestId, requestTs)
   const redirectTo = appendTelemetryContextToRedirect(
     normalizeRedirectTo(payload.redirect_to),
     requestId,

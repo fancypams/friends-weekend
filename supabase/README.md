@@ -44,6 +44,7 @@ Deploy these functions:
 - `gallery-feed`
 - `my-uploads`
 - `sign-media-url`
+- `download-media-archive`
 - `upload-window`
 - `invites`
 - `invite-and-send`
@@ -61,6 +62,7 @@ supabase functions deploy complete-upload --no-verify-jwt
 supabase functions deploy gallery-feed --no-verify-jwt
 supabase functions deploy my-uploads --no-verify-jwt
 supabase functions deploy sign-media-url --no-verify-jwt
+supabase functions deploy download-media-archive --no-verify-jwt
 supabase functions deploy upload-window --no-verify-jwt
 supabase functions deploy invites --no-verify-jwt
 supabase functions deploy invite-and-send --no-verify-jwt

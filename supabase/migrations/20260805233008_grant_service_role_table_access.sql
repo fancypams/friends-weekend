@@ -1,0 +1,11 @@
+grant select, insert, update, delete on public.invite_allowlist to service_role;
+grant select, insert, update, delete on public.profiles to service_role;
+grant select, insert, update, delete on public.media_assets to service_role;
+grant select, insert, update, delete on public.upload_quota_usage to service_role;
+grant select, insert, update, delete on public.audit_log to service_role;
+grant select, insert, update, delete on public.invite_delivery_attempts to service_role;
+grant select, insert, update, delete on public.magic_link_attempts to service_role;
+grant select, insert, update, delete on public.resend_email_events to service_role;
+grant select, insert, update, delete on public.user_presence to service_role;
+grant select, insert, update, delete on public.funnel_events to service_role;
+grant usage, select on all sequences in schema public to service_role;

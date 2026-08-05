@@ -331,3 +331,67 @@ export async function callFunction(path, { method = 'GET', body } = {}) {
     throw err
   }
 }
+
+function filenameFromContentDisposition(value) {
+  const header = String(value || '')
+  const utfMatch = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utfMatch?.[1]) {
+    try {
+      return decodeURIComponent(utfMatch[1])
+    } catch {
+      return utfMatch[1]
+    }
+  }
+
+  const match = header.match(/filename="?([^";]+)"?/i)
+  return match?.[1] || ''
+}
+
+export async function callFunctionBlob(path, { method = 'GET', body, timeoutMs = 0 } = {}) {
+  const headers = await authHeaders()
+  delete headers['Content-Type']
+
+  const controller = timeoutMs > 0 ? new AbortController() : null
+  const timeout = timeoutMs > 0
+    ? setTimeout(() => controller.abort(), timeoutMs)
+    : null
+
+  try {
+    const res = await fetch(supabaseFunctionUrl(path), {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller?.signal,
+    })
+
+    if (!res.ok) {
+      let payload = null
+      try {
+        const text = await res.text()
+        payload = text ? JSON.parse(text) : null
+      } catch {
+        payload = null
+      }
+
+      const error = new Error(payload?.error || payload?.message || `Request failed (${res.status})`)
+      error.status = res.status
+      error.body = payload
+      throw error
+    }
+
+    return {
+      blob: await res.blob(),
+      filename: filenameFromContentDisposition(res.headers.get('Content-Disposition')),
+    }
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      const timeoutError = new Error('Request timed out. Please try again.')
+      timeoutError.code = 'request_timeout'
+      timeoutError.status = 408
+      throw timeoutError
+    }
+    throw err
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}

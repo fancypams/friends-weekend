@@ -10,6 +10,7 @@ import { bypassAuth, hasSupabaseConfig, supabase } from '../lib/supabaseClient'
 import {
   completeUpload,
   createUploadTicket,
+  downloadMediaArchive,
   fetchGalleryFeed,
   fetchProfile,
   fetchUploadWindow,
@@ -36,6 +37,8 @@ const uploadWindow = ref(null)
 const uploadWindowLoading = ref(false)
 const uploadWindowError = ref('')
 const uploadWindowUnavailable = ref(false)
+const archiveDownloadBusy = ref(false)
+const archiveDownloadError = ref('')
 const nativePickerRef = ref(null)
 const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const isMobileViewport = ref(typeof window !== 'undefined' ? window.innerWidth <= 699 : false)
@@ -104,6 +107,7 @@ const UPLOAD_WINDOW_REFRESH_MS = 5 * 60 * 1000
 const CAPTURE_WINDOW_START_MS = Date.parse('2026-07-30T07:00:00.000Z') // Jul 30 00:00 Seattle (PDT)
 const CAPTURE_WINDOW_END_MS = Date.parse('2026-08-10T06:59:59.999Z') // Aug 9 23:59:59 Seattle (PDT)
 const CAPTURE_WINDOW_LABEL = 'Jul 30-Aug 9, 2026 (Seattle time)'
+const ARCHIVE_DOWNLOAD_UNLOCK_MS = Date.parse('2026-08-10T07:00:00.000Z') // Aug 10 00:00 Pacific
 const PT_UTC_OFFSET_HOURS = 7 // Event is in summer (PDT, UTC-7)
 const PT_OFFSET_MS = PT_UTC_OFFSET_HOURS * 60 * 60 * 1000
 const DAILY_REVEAL_HOUR_PT = 21 // 9:00 PM PT
@@ -131,6 +135,12 @@ const activeUploadCount = computed(() => (
 const failedUploadCount = computed(() => queueItems.value.filter((item) => item.status === 'failed').length)
 const failedUploadItems = computed(() => queueItems.value.filter((item) => item.status === 'failed'))
 const pendingUploadCount = computed(() => queuedUploadCount.value + activeUploadCount.value)
+const archiveDownloadUnlocked = computed(() => uploadClockMs.value >= ARCHIVE_DOWNLOAD_UNLOCK_MS)
+const archiveDownloadLabel = computed(() => {
+  if (archiveDownloadBusy.value) return 'Preparing ZIP...'
+  if (!archiveDownloadUnlocked.value) return 'Download all originals available Aug 10'
+  return 'Download all originals'
+})
 const uploadStatusMessage = computed(() => {
   if (pendingUploadCount.value > 0) return `Uploading ${pendingUploadCount.value} file(s)…`
   if (failedUploadCount.value > 0) return `${failedUploadCount.value} file(s) failed to upload.`
@@ -1396,6 +1406,38 @@ function openNativeUploadPicker() {
   input.click()
 }
 
+async function downloadAllOriginals() {
+  if (!archiveDownloadUnlocked.value || archiveDownloadBusy.value) return
+
+  archiveDownloadBusy.value = true
+  archiveDownloadError.value = ''
+
+  try {
+    const payload = await withSessionRetry(() => downloadMediaArchive())
+    const blob = payload?.blob
+    if (!blob?.size) {
+      archiveDownloadError.value = 'No media from other guests is available to download.'
+      return
+    }
+
+    const filename = payload.filename || 'friends-weekend-originals.zip'
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 5000)
+  } catch (err) {
+    if (!(await maybeReauth(err))) {
+      archiveDownloadError.value = normalizeUploadError(err) || 'Could not prepare archive.'
+    }
+  } finally {
+    archiveDownloadBusy.value = false
+  }
+}
+
 function handleNativePickerChange(event) {
   const files = Array.from(event.target?.files || [])
   if (!files.length) return
@@ -1877,6 +1919,17 @@ onUnmounted(() => {
                 Preview mode is on: other people's uploads are intentionally shown as locked.
               </p>
             </div>
+            <div class="archive-download">
+              <button
+                class="btn soft archive-download-btn"
+                type="button"
+                :disabled="!archiveDownloadUnlocked || archiveDownloadBusy"
+                @click="downloadAllOriginals"
+              >
+                {{ archiveDownloadLabel }}
+              </button>
+              <small v-if="archiveDownloadError" class="archive-download-error">{{ archiveDownloadError }}</small>
+            </div>
           </header>
 
           <div v-if="showUploadStatus" class="upload-status" role="status" aria-live="polite">
@@ -2041,6 +2094,25 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: end;
   gap: 10px;
+}
+
+.archive-download {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  max-width: 260px;
+}
+
+.archive-download-btn {
+  white-space: normal;
+  line-height: 1.2;
+}
+
+.archive-download-error {
+  color: var(--red-error);
+  font-size: 0.76rem;
+  line-height: 1.3;
+  text-align: right;
 }
 
 .welcome-heading {
@@ -2273,6 +2345,20 @@ h2 {
   .panel {
     padding: 12px;
     border-radius: 12px;
+  }
+
+  .gallery-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .archive-download {
+    justify-items: stretch;
+    max-width: none;
+  }
+
+  .archive-download-error {
+    text-align: left;
   }
 
   .gallery-controls {

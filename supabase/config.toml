@@ -33,6 +33,12 @@ verify_jwt = false
 [functions.sign-media-url]
 verify_jwt = false
 
+[functions.download-media-archive]
+verify_jwt = false
+
+[functions.upload-window]
+verify_jwt = false
+
 [functions.invites]
 verify_jwt = false
 
