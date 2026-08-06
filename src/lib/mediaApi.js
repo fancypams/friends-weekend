@@ -1,6 +1,6 @@
 import * as tus from 'tus-js-client'
 import { bypassAuth, supabase, supabaseAnonKey, supabaseUrl } from './supabaseClient'
-import { callFunction, callFunctionBlob, getValidSession } from './functionsApi'
+import { callFunction, getValidSession } from './functionsApi'
 
 export async function fetchProfile(userId) {
   if (!supabase) throw new Error('Supabase is not configured')
@@ -129,8 +129,218 @@ export function signMediaUrl(mediaId, variant = 'processed') {
   })
 }
 
-export function downloadMediaArchive() {
-  return callFunctionBlob('download-media-archive')
+const zipCrcTable = new Uint32Array(256)
+for (let i = 0; i < 256; i += 1) {
+  let c = i
+  for (let k = 0; k < 8; k += 1) {
+    c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+  }
+  zipCrcTable[i] = c >>> 0
+}
+
+function updateZipCrc(crc, chunk) {
+  let next = crc
+  for (const byte of chunk) {
+    next = zipCrcTable[(next ^ byte) & 0xff] ^ (next >>> 8)
+  }
+  return next >>> 0
+}
+
+function zipU16(value) {
+  return [value & 0xff, (value >>> 8) & 0xff]
+}
+
+function zipU32(value) {
+  return [
+    value & 0xff,
+    (value >>> 8) & 0xff,
+    (value >>> 16) & 0xff,
+    (value >>> 24) & 0xff,
+  ]
+}
+
+function zipDateTime(value) {
+  const date = new Date(value)
+  const safe = Number.isNaN(date.getTime()) ? new Date() : date
+  const year = Math.max(1980, safe.getUTCFullYear())
+  return {
+    dosTime: (safe.getUTCHours() << 11) | (safe.getUTCMinutes() << 5) | Math.floor(safe.getUTCSeconds() / 2),
+    dosDate: ((year - 1980) << 9) | ((safe.getUTCMonth() + 1) << 5) | safe.getUTCDate(),
+  }
+}
+
+function zipConcat(parts) {
+  const length = parts.reduce((sum, part) => sum + part.length, 0)
+  const out = new Uint8Array(length)
+  let offset = 0
+  for (const part of parts) {
+    out.set(part, offset)
+    offset += part.length
+  }
+  return out
+}
+
+function zipLocalHeader(nameBytes, dosTime, dosDate, crc, bytes) {
+  return zipConcat([
+    zipU32(0x04034b50),
+    zipU16(20),
+    zipU16(0x0800),
+    zipU16(0),
+    zipU16(dosTime),
+    zipU16(dosDate),
+    zipU32(crc),
+    zipU32(bytes),
+    zipU32(bytes),
+    zipU16(nameBytes.length),
+    zipU16(0),
+    nameBytes,
+  ])
+}
+
+function zipCentralHeader(entry) {
+  return zipConcat([
+    zipU32(0x02014b50),
+    zipU16(20),
+    zipU16(20),
+    zipU16(0x0800),
+    zipU16(0),
+    zipU16(entry.dosTime),
+    zipU16(entry.dosDate),
+    zipU32(entry.crc),
+    zipU32(entry.bytes),
+    zipU32(entry.bytes),
+    zipU16(entry.nameBytes.length),
+    zipU16(0),
+    zipU16(0),
+    zipU16(0),
+    zipU16(0),
+    zipU32(0),
+    zipU32(entry.offset),
+    entry.nameBytes,
+  ])
+}
+
+function zipEnd(entryCount, centralBytes, centralOffset) {
+  return zipConcat([
+    zipU32(0x06054b50),
+    zipU16(0),
+    zipU16(0),
+    zipU16(entryCount),
+    zipU16(entryCount),
+    zipU32(centralBytes),
+    zipU32(centralOffset),
+    zipU16(0),
+  ])
+}
+
+async function fetchArchiveEntry(entry, onChunk) {
+  const res = await fetch(entry.url)
+  if (!res.ok) throw new Error(`Could not download ${entry.name}`)
+
+  if (!res.body) {
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    onChunk(bytes.length)
+    return {
+      chunks: [bytes],
+      bytes: bytes.length,
+      crc: (updateZipCrc(0xffffffff, bytes) ^ 0xffffffff) >>> 0,
+    }
+  }
+
+  const reader = res.body.getReader()
+  const chunks = []
+  let crc = 0xffffffff
+  let bytes = 0
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    chunks.push(value)
+    crc = updateZipCrc(crc, value)
+    bytes += value.length
+    onChunk(value.length)
+  }
+
+  return {
+    chunks,
+    bytes,
+    crc: (crc ^ 0xffffffff) >>> 0,
+  }
+}
+
+async function buildArchiveFromManifest(manifest, onProgress) {
+  const entries = Array.isArray(manifest?.entries) ? manifest.entries : []
+  if (!entries.length) throw new Error('No media from other guests is available to download.')
+
+  const encoder = new TextEncoder()
+  const parts = []
+  const centralEntries = []
+  const totalBytes = Number(manifest.totalBytes || 0)
+  let loadedBytes = 0
+  let written = 0
+
+  onProgress?.({
+    phase: 'downloading',
+    loadedBytes: 0,
+    totalBytes,
+    itemCount: entries.length,
+  })
+
+  for (const entry of entries) {
+    const downloaded = await fetchArchiveEntry(entry, (chunkBytes) => {
+      loadedBytes += chunkBytes
+      onProgress?.({
+        phase: 'downloading',
+        loadedBytes,
+        totalBytes,
+        itemCount: entries.length,
+      })
+    })
+    const { dosTime, dosDate } = zipDateTime(entry.publishedAt)
+    const nameBytes = encoder.encode(entry.name)
+    const offset = written
+    const header = zipLocalHeader(nameBytes, dosTime, dosDate, downloaded.crc, downloaded.bytes)
+
+    parts.push(header, ...downloaded.chunks)
+    written += header.length + downloaded.bytes
+    centralEntries.push({ nameBytes, crc: downloaded.crc, bytes: downloaded.bytes, offset, dosTime, dosDate })
+  }
+
+  const centralOffset = written
+  let centralBytes = 0
+  for (const entry of centralEntries) {
+    const header = zipCentralHeader(entry)
+    centralBytes += header.length
+    parts.push(header)
+  }
+  parts.push(zipEnd(centralEntries.length, centralBytes, centralOffset))
+
+  const blob = new Blob(parts, { type: 'application/zip' })
+  onProgress?.({
+    phase: 'complete',
+    loadedBytes: blob.size,
+    totalBytes: blob.size,
+    itemCount: entries.length,
+  })
+
+  return {
+    blob,
+    filename: manifest.filename || 'friends-weekend-2026.zip',
+    itemCount: entries.length,
+    totalBytes: blob.size,
+  }
+}
+
+export async function downloadMediaArchive(options = {}) {
+  options.onProgress?.({
+    phase: 'requesting',
+    loadedBytes: 0,
+    totalBytes: 0,
+    itemCount: 0,
+  })
+  const manifest = await callFunction('download-media-archive?manifest=1')
+  return buildArchiveFromManifest(manifest, options.onProgress)
 }
 
 export function removeMedia(mediaId) {

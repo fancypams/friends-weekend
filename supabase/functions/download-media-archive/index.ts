@@ -6,7 +6,7 @@ import { BUCKET, FILE_EXT_BY_MIME } from '../_shared/constants.ts'
 
 const ARCHIVE_UNLOCK_AT_ISO = '2026-08-10T07:00:00.000Z' // Aug 10 00:00 Pacific
 const ARCHIVE_UNLOCK_AT_MS = Date.parse(ARCHIVE_UNLOCK_AT_ISO)
-const ARCHIVE_FILENAME = 'friends-weekend-originals.zip'
+const ARCHIVE_FILENAME = 'friends-weekend-2026.zip'
 const MAX_ZIP32_BYTES = 0xffffffff
 const MAX_ZIP32_ENTRIES = 0xffff
 const PAGE_SIZE = 1000
@@ -88,29 +88,20 @@ function concatParts(parts: (number[] | Uint8Array)[]) {
   return out
 }
 
-function localHeader(nameBytes: Uint8Array, dosTime: number, dosDate: number) {
+function localHeader(nameBytes: Uint8Array, dosTime: number, dosDate: number, crc: number, bytes: number) {
   return concatParts([
     u32(0x04034b50),
     u16(20),
-    u16(0x0808), // UTF-8 names + data descriptor.
+    u16(0x0800), // UTF-8 filenames.
     u16(0),
     u16(dosTime),
     u16(dosDate),
-    u32(0),
-    u32(0),
-    u32(0),
-    u16(nameBytes.length),
-    u16(0),
-    nameBytes,
-  ])
-}
-
-function dataDescriptor(crc: number, bytes: number) {
-  return concatParts([
-    u32(0x08074b50),
     u32(crc),
     u32(bytes),
     u32(bytes),
+    u16(nameBytes.length),
+    u16(0),
+    nameBytes,
   ])
 }
 
@@ -119,7 +110,7 @@ function centralHeader(entry: CentralEntry) {
     u32(0x02014b50),
     u16(20),
     u16(20),
-    u16(0x0808),
+    u16(0x0800),
     u16(0),
     u16(entry.dosTime),
     u16(entry.dosDate),
@@ -207,6 +198,35 @@ async function loadArchiveRows(admin: SupabaseClient, userId: string) {
   return rows
 }
 
+async function signedManifest(admin: SupabaseClient, entries: ZipEntry[], totalBytes: number) {
+  const signedEntries = []
+
+  for (const entry of entries) {
+    const { data, error } = await admin.storage.from(BUCKET).createSignedUrl(entry.path, 60 * 60)
+    if (error || !data?.signedUrl) {
+      throw new Error(error?.message || `Could not sign ${entry.name}`)
+    }
+
+    signedEntries.push({
+      name: entry.name,
+      url: data.signedUrl,
+      bytes: entry.bytes,
+      publishedAt: entry.publishedAt,
+    })
+  }
+
+  return {
+    filename: ARCHIVE_FILENAME,
+    totalBytes,
+    itemCount: entries.length,
+    entries: signedEntries,
+  }
+}
+
+function crc32(bytes: Uint8Array) {
+  return (updateCrc(0xffffffff, bytes) ^ 0xffffffff) >>> 0
+}
+
 function zipStream(admin: SupabaseClient, entries: ZipEntry[]) {
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -225,27 +245,18 @@ function zipStream(admin: SupabaseClient, entries: ZipEntry[]) {
           const nameBytes = encoder.encode(entry.name)
           const offset = written
 
-          enqueue(localHeader(nameBytes, dosTime, dosDate))
-
           const { data: blob, error } = await admin.storage.from(BUCKET).download(entry.path)
           if (error || !blob) throw new Error(error?.message || `Could not read ${entry.name}`)
 
-          const reader = blob.stream().getReader()
-          let crc = 0xffffffff
-          let fileBytes = 0
-
-          for (;;) {
-            const { done, value } = await reader.read()
-            if (done) break
-            if (!value) continue
-            crc = updateCrc(crc, value)
-            fileBytes += value.length
-            enqueue(value)
+          const bytes = new Uint8Array(await blob.arrayBuffer())
+          if (bytes.length > MAX_ZIP32_BYTES) {
+            throw new Error(`${entry.name} is too large for ZIP32`)
           }
 
-          const finalCrc = (crc ^ 0xffffffff) >>> 0
-          enqueue(dataDescriptor(finalCrc, fileBytes))
-          centralEntries.push({ nameBytes, crc: finalCrc, bytes: fileBytes, offset, dosTime, dosDate })
+          const crc = crc32(bytes)
+          enqueue(localHeader(nameBytes, dosTime, dosDate, crc, bytes.length))
+          enqueue(bytes)
+          centralEntries.push({ nameBytes, crc, bytes: bytes.length, offset, dosTime, dosDate })
         }
 
         const centralOffset = written
@@ -255,7 +266,6 @@ function zipStream(admin: SupabaseClient, entries: ZipEntry[]) {
           centralBytes += header.length
           enqueue(header)
         }
-
         enqueue(endOfCentralDirectory(centralEntries.length, centralBytes, centralOffset))
         controller.close()
       } catch (err) {
@@ -304,17 +314,27 @@ Deno.serve(async (req) => {
   }))
 
   const estimatedZipBytes = entries.reduce((sum, entry) => (
-    sum + entry.bytes + 30 + encoder.encode(entry.name).length + 16 + 46 + encoder.encode(entry.name).length
+    sum + entry.bytes + 30 + encoder.encode(entry.name).length + 46 + encoder.encode(entry.name).length
   ), 22)
 
   if (estimatedZipBytes > MAX_ZIP32_BYTES) {
     return json({ error: 'Archive is too large to download as a single ZIP.' }, 413)
   }
 
+  if (new URL(req.url).searchParams.get('manifest') === '1') {
+    try {
+      return json(await signedManifest(auth.admin, entries, estimatedZipBytes))
+    } catch (err) {
+      return serverError('Could not prepare archive', err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return withCors(new Response(zipStream(auth.admin, entries), {
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename="${ARCHIVE_FILENAME}"`,
+      'X-Archive-Item-Count': String(entries.length),
+      'X-Archive-Total-Bytes': String(estimatedZipBytes),
       'Cache-Control': 'no-store',
     },
   }))

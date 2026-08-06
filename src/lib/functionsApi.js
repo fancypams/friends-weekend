@@ -347,7 +347,67 @@ function filenameFromContentDisposition(value) {
   return match?.[1] || ''
 }
 
-export async function callFunctionBlob(path, { method = 'GET', body, timeoutMs = 0 } = {}) {
+function numberFromHeader(headers, name) {
+  const value = Number(headers.get(name) || 0)
+  return Number.isFinite(value) && value > 0 ? value : 0
+}
+
+async function readBlobWithProgress(res, onProgress) {
+  const totalBytes = (
+    numberFromHeader(res.headers, 'Content-Length')
+    || numberFromHeader(res.headers, 'X-Archive-Total-Bytes')
+  )
+  const itemCount = numberFromHeader(res.headers, 'X-Archive-Item-Count')
+
+  onProgress?.({
+    phase: 'downloading',
+    loadedBytes: 0,
+    totalBytes,
+    itemCount,
+  })
+
+  if (!res.body) {
+    const blob = await res.blob()
+    onProgress?.({
+      phase: 'complete',
+      loadedBytes: blob.size,
+      totalBytes: totalBytes || blob.size,
+      itemCount,
+    })
+    return blob
+  }
+
+  const reader = res.body.getReader()
+  const chunks = []
+  let loadedBytes = 0
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    chunks.push(value)
+    loadedBytes += value.length
+    onProgress?.({
+      phase: 'downloading',
+      loadedBytes,
+      totalBytes,
+      itemCount,
+    })
+  }
+
+  const blob = new Blob(chunks, {
+    type: res.headers.get('Content-Type') || 'application/octet-stream',
+  })
+  onProgress?.({
+    phase: 'complete',
+    loadedBytes: blob.size,
+    totalBytes: totalBytes || blob.size,
+    itemCount,
+  })
+  return blob
+}
+
+export async function callFunctionBlob(path, { method = 'GET', body, timeoutMs = 0, onProgress } = {}) {
   const headers = await authHeaders()
   delete headers['Content-Type']
 
@@ -357,6 +417,13 @@ export async function callFunctionBlob(path, { method = 'GET', body, timeoutMs =
     : null
 
   try {
+    onProgress?.({
+      phase: 'requesting',
+      loadedBytes: 0,
+      totalBytes: 0,
+      itemCount: 0,
+    })
+
     const res = await fetch(supabaseFunctionUrl(path), {
       method,
       headers,
@@ -380,8 +447,10 @@ export async function callFunctionBlob(path, { method = 'GET', body, timeoutMs =
     }
 
     return {
-      blob: await res.blob(),
+      blob: await readBlobWithProgress(res, onProgress),
       filename: filenameFromContentDisposition(res.headers.get('Content-Disposition')),
+      itemCount: numberFromHeader(res.headers, 'X-Archive-Item-Count'),
+      totalBytes: numberFromHeader(res.headers, 'X-Archive-Total-Bytes'),
     }
   } catch (err) {
     if (err?.name === 'AbortError') {
