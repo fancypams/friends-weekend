@@ -313,7 +313,7 @@ function canRecordSettlement(row) {
   return Boolean(
     row?.settlementCents > 0
     && currentUserFamily.value
-    && currentUserFamily.value === row.settlementFrom
+    && currentUserFamily.value === row.settlementTo
   )
 }
 
@@ -321,8 +321,20 @@ function canUploadProof(row) {
   return Boolean(row?.from_family && currentUserFamily.value === row.from_family)
 }
 
-function canMarkSettled(row) {
-  return Boolean(row?.to_family && currentUserFamily.value === row.to_family)
+function canUploadProofForSettlementRow(row) {
+  return Boolean(row?.settlementFrom && currentUserFamily.value === row.settlementFrom)
+}
+
+function canConfirmReceived(row) {
+  return Boolean(row?.to_family && !row.settled && currentUserFamily.value === row.to_family)
+}
+
+function canCreateSettlement(row) {
+  return Boolean(
+    row?.settlementCents > 0
+    && currentUserFamily.value
+    && [row.settlementFrom, row.settlementTo].includes(currentUserFamily.value)
+  )
 }
 
 function canDeleteSettlement(row) {
@@ -335,7 +347,7 @@ function proofLabel(row) {
 }
 
 function settlementStatus(row) {
-  if (row.settled) return 'Settled'
+  if (row.settled) return 'Received'
   if (row.confirmation_path) return 'Proof uploaded'
   return 'Payment recorded'
 }
@@ -498,11 +510,12 @@ async function handleDelete(row) {
 
 async function createSettlement(row) {
   if (!supabase) throw new Error('Supabase is not configured')
-  if (!canRecordSettlement(row)) throw new Error('Only the paying family can record this payment.')
+  if (!canCreateSettlement(row)) throw new Error('Only involved families can record this payment.')
 
   const key = currentSettlementKey(row)
   recordingSettlementKey.value = key
   proofError.value = null
+  const receivedByReceiver = currentUserFamily.value === row.settlementTo
 
   const { data, error } = await supabase
     .from('expense_settlements')
@@ -510,6 +523,9 @@ async function createSettlement(row) {
       from_family: row.settlementFrom,
       to_family: row.settlementTo,
       amount_cents: row.settlementCents,
+      settled: receivedByReceiver,
+      settled_by: receivedByReceiver ? currentUserId.value : null,
+      settled_at: receivedByReceiver ? new Date().toISOString() : null,
       created_by: currentUserId.value,
     })
     .select('id,from_family,to_family,amount_cents,confirmation_path,settled,settled_by,settled_at,created_by,created_at')
@@ -522,6 +538,11 @@ async function createSettlement(row) {
 }
 
 async function handleRecordSettlement(row) {
+  if (!canRecordSettlement(row)) {
+    proofError.value = 'Only the receiving family can record this payment.'
+    return
+  }
+
   try {
     await createSettlement(row)
   } catch (err) {
@@ -600,11 +621,9 @@ async function handleOpenProof(row) {
   }
 }
 
-async function handleSettledChange(row, event) {
-  const checked = event.target.checked
-  if (!supabase || !canMarkSettled(row)) {
-    event.target.checked = row.settled
-    proofError.value = 'Only the family being paid can mark this settled.'
+async function handleConfirmReceived(row) {
+  if (!supabase || !canConfirmReceived(row)) {
+    proofError.value = 'Only the family being paid can confirm receipt.'
     return
   }
 
@@ -614,7 +633,7 @@ async function handleSettledChange(row, event) {
   try {
     const { data, error } = await supabase
       .from('expense_settlements')
-      .update({ settled: checked })
+      .update({ settled: true })
       .eq('id', row.id)
       .select('id,from_family,to_family,amount_cents,confirmation_path,settled,settled_by,settled_at,created_by,created_at')
       .single()
@@ -622,9 +641,8 @@ async function handleSettledChange(row, event) {
     if (error) throw error
     settlements.value = settlements.value.map((item) => (item.id === data.id ? data : item))
   } catch (err) {
-    console.error('[ExpensesPage] settle', err)
-    proofError.value = err.message || 'Could not update settlement'
-    event.target.checked = row.settled
+    console.error('[ExpensesPage] confirm receipt', err)
+    proofError.value = err.message || 'Could not confirm receipt'
   }
 
   updatingSettlementId.value = ''
@@ -941,11 +959,11 @@ onMounted(async () => {
               <span>Remaining {{ formatCurrency(row.remainingCents) }}</span>
 
               <div
-                v-if="canRecordSettlement(row)"
+                v-if="row.settlementCents > 0 && (canRecordSettlement(row) || canUploadProofForSettlementRow(row))"
                 class="settlement-actions"
               >
                 <button
-                  v-if="row.settlementCents > 0"
+                  v-if="canRecordSettlement(row)"
                   class="settlement-btn"
                   type="button"
                   :disabled="recordingSettlementKey === currentSettlementKey(row)"
@@ -957,7 +975,7 @@ onMounted(async () => {
                 </button>
 
                 <label
-                  v-if="row.settlementCents > 0"
+                  v-if="canUploadProofForSettlementRow(row)"
                   class="settlement-btn proof-upload"
                   :class="{ 'settlement-btn--disabled': uploadingSettlementKey }"
                   title="Upload proof for this payment"
@@ -1012,17 +1030,24 @@ onMounted(async () => {
                   </label>
 
                   <label
-                    class="settled-check"
-                    :title="canMarkSettled(payment) ? 'Mark payment settled' : 'Only the family being paid can mark this settled'"
+                    v-if="payment.settled"
+                    class="received-status"
+                    title="Payment receipt confirmed"
                   >
-                    <input
-                      type="checkbox"
-                      :checked="payment.settled"
-                      :disabled="!canMarkSettled(payment) || updatingSettlementId === payment.id"
-                      @change="handleSettledChange(payment, $event)"
-                    />
-                    <span>Settled</span>
+                    Received
                   </label>
+
+                  <button
+                    v-else-if="canConfirmReceived(payment)"
+                    class="text-btn"
+                    type="button"
+                    :disabled="updatingSettlementId === payment.id"
+                    title="Confirm this payment was received"
+                    @click="handleConfirmReceived(payment)"
+                  >
+                    <span v-if="updatingSettlementId === payment.id" class="delete-spinner"></span>
+                    {{ updatingSettlementId === payment.id ? 'Confirming...' : 'Confirm Received' }}
+                  </button>
 
                   <button
                     class="delete-btn payment-delete"
@@ -1604,23 +1629,21 @@ onMounted(async () => {
   font-style: italic;
 }
 
-.settled-check {
+.received-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   min-height: 30px;
+  padding: 6px 8px;
+  border: 1px solid rgba(78, 122, 91, 0.24);
+  border-radius: 4px;
+  background: rgba(78, 122, 91, 0.08);
   color: var(--forest);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.settled-check input {
-  margin: 0;
-}
-
-.settled-check:has(input:disabled) {
-  opacity: 0.45;
-  cursor: not-allowed;
+  font-family: var(--font-sign);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 
 .payment-delete {
