@@ -1,3 +1,5 @@
+import { TRIP_END } from './capture-window.ts'
+
 const PT_UTC_OFFSET_HOURS = 7 // Event dates are in summer (PDT, UTC-7)
 const PT_OFFSET_MS = PT_UTC_OFFSET_HOURS * 60 * 60 * 1000
 const REVEAL_HOUR_PT = 21 // 9:00 PM PT
@@ -18,6 +20,8 @@ export function revealAtIsoForUpload(uploadedAtRaw: string | null | undefined) {
   if (hourPt >= REVEAL_HOUR_PT) {
     revealUtcMs = uploadedMs
   }
+
+  revealUtcMs = Math.min(revealUtcMs, TRIP_END.getTime())
 
   return new Date(revealUtcMs).toISOString()
 }

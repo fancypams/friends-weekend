@@ -3,8 +3,9 @@ import { handleOptions, withCors } from '../_shared/cors.ts'
 import { assertMethod, forbidden, json, serverError } from '../_shared/http.ts'
 import { requireAuth } from '../_shared/auth.ts'
 import { BUCKET, FILE_EXT_BY_MIME } from '../_shared/constants.ts'
+import { POST_TRIP_UPLOAD_END_ISO } from '../_shared/capture-window.ts'
 
-const ARCHIVE_UNLOCK_AT_ISO = '2026-08-10T07:00:00.000Z' // Aug 10 00:00 Pacific
+const ARCHIVE_UNLOCK_AT_ISO = POST_TRIP_UPLOAD_END_ISO
 const ARCHIVE_UNLOCK_AT_MS = Date.parse(ARCHIVE_UNLOCK_AT_ISO)
 const ARCHIVE_FILENAME = 'friends-weekend-2026.zip'
 const MAX_ZIP32_BYTES = 0xffffffff

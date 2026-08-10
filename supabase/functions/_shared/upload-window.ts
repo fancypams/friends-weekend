@@ -1,6 +1,6 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import type { ProfileRow } from './auth.ts'
-import { CAPTURE_WINDOW_END } from './capture-window.ts'
+import { POST_TRIP_UPLOAD_END } from './capture-window.ts'
 
 const SHEET_ID = '10Vb7iKPjZC2THOPiMf50MtKMM5K3LQ70VTVdBCuSdlo'
 const SHEET_NAME = 'Flight Info'
@@ -326,18 +326,18 @@ async function resolveNonTravelerUploadWindow(admin: SupabaseClient, rows: Fligh
 
   const scheduledOpenMs = scheduledDeparture.getTime() - OPEN_BEFORE_DEPARTURE_MS
   const opensAtDate = new Date(Math.min(scheduledOpenMs, SEATTLE_UPLOAD_WINDOW_START_MS))
-  const closesAtDate = CAPTURE_WINDOW_END
+  const closesAtDate = POST_TRIP_UPLOAD_END
   const nowMs = now.getTime()
 
   let reason = 'Uploads are open.'
   if (nowMs < opensAtDate.getTime()) {
     reason = 'Uploads open when the first arriving traveler can upload.'
-  } else if (nowMs > closesAtDate.getTime()) {
-    reason = 'Uploads closed when the Seattle media window ended.'
+  } else if (nowMs >= closesAtDate.getTime()) {
+    reason = 'Uploads closed when the post-trip upload window ended.'
   }
 
   return {
-    allowed: nowMs >= opensAtDate.getTime() && nowMs <= closesAtDate.getTime(),
+    allowed: nowMs >= opensAtDate.getTime() && nowMs < closesAtDate.getTime(),
     reason,
     opensAt: opensAtDate.toISOString(),
     closesAt: closesAtDate.toISOString(),
@@ -374,12 +374,12 @@ export async function resolveUploadWindow(
 ): Promise<UploadWindow> {
   const nowMs = _now.getTime()
   const opensAtDate = new Date(SEATTLE_UPLOAD_WINDOW_START_MS)
-  const closesAtDate = CAPTURE_WINDOW_END
+  const closesAtDate = POST_TRIP_UPLOAD_END
 
   return {
-    allowed: nowMs >= opensAtDate.getTime() && nowMs <= closesAtDate.getTime(),
-    reason: nowMs > closesAtDate.getTime()
-      ? 'Uploads closed when the Seattle media window ended.'
+    allowed: nowMs >= opensAtDate.getTime() && nowMs < closesAtDate.getTime(),
+    reason: nowMs >= closesAtDate.getTime()
+      ? 'Uploads closed when the post-trip upload window ended.'
       : 'Uploads are open.',
     opensAt: opensAtDate.toISOString(),
     closesAt: closesAtDate.toISOString(),
