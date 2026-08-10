@@ -113,7 +113,7 @@ const UPLOAD_WINDOW_REFRESH_MS = 5 * 60 * 1000
 const CAPTURE_WINDOW_START_MS = Date.parse('2026-07-30T07:00:00.000Z') // Jul 30 00:00 Seattle (PDT)
 const CAPTURE_WINDOW_END_MS = Date.parse('2026-08-10T06:59:59.999Z') // Aug 9 23:59:59 Seattle (PDT)
 const TRIP_END_MS = Date.parse('2026-08-10T07:00:00.000Z') // Aug 10 00:00 Seattle (PDT)
-const POST_TRIP_UPLOAD_END_MS = Date.parse('2026-08-13T07:00:00.000Z') // Aug 13 00:00 Seattle (PDT)
+const POST_TRIP_UPLOAD_END_MS = Date.parse('2026-08-10T07:00:00.000Z') // Aug 10 00:00 Seattle (PDT)
 const CAPTURE_WINDOW_LABEL = 'Jul 30-Aug 9, 2026 (Seattle time)'
 const ARCHIVE_DOWNLOAD_UNLOCK_MS = POST_TRIP_UPLOAD_END_MS
 const PT_UTC_OFFSET_HOURS = 7 // Event is in summer (PDT, UTC-7)
@@ -149,7 +149,7 @@ const archiveDownloadLabel = computed(() => {
     return `Downloading ${archiveDownloadPercent.value}%`
   }
   if (archiveDownloadBusy.value) return 'Preparing ZIP...'
-  if (!archiveDownloadUnlocked.value) return 'Download All available Aug 13'
+  if (!archiveDownloadUnlocked.value) return 'Download All available Aug 10'
   return 'Download All'
 })
 const archiveDownloadPercent = computed(() => {
@@ -1966,7 +1966,7 @@ onUnmounted(() => {
           <div>
             <h2 class="welcome-heading">Shared media</h2>
             <p class="welcome-blurb gallery-intro">
-              Uploads are open through Aug 12. Media reveals nightly until the trip ends.
+              Uploads are open through Aug 9. Media reveals nightly until the trip ends.
             </p>
           </div>
         </header>
@@ -1985,7 +1985,7 @@ onUnmounted(() => {
             <div>
               <h2 class="welcome-heading">Shared media</h2>
               <p class="welcome-blurb gallery-intro">
-                Uploads are open through Aug 12. Media reveals nightly until the trip ends.
+                Uploads are open through Aug 9. Media reveals nightly until the trip ends.
               </p>
               <p v-if="forceCensoredPreview" class="debug-note">
                 Preview mode is on: other people's uploads are intentionally shown as locked.
