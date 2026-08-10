@@ -181,10 +181,10 @@ async function parseResponse(res) {
   return body
 }
 
-export async function callFunction(path, { method = 'GET', body } = {}) {
+export async function callFunction(path, { method = 'GET', body, timeoutMs = FUNCTION_TIMEOUT_MS } = {}) {
   const makeRequest = async (headers) => {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), FUNCTION_TIMEOUT_MS)
+    const timeout = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null
 
     try {
       return await fetch(supabaseFunctionUrl(path), {
@@ -194,7 +194,7 @@ export async function callFunction(path, { method = 'GET', body } = {}) {
         signal: controller.signal,
       })
     } finally {
-      clearTimeout(timeout)
+      if (timeout) clearTimeout(timeout)
     }
   }
 

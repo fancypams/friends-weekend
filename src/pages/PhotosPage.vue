@@ -147,8 +147,8 @@ const archiveDownloadLabel = computed(() => {
     return `Downloading ${archiveDownloadPercent.value}%`
   }
   if (archiveDownloadBusy.value) return 'Preparing ZIP...'
-  if (!archiveDownloadUnlocked.value) return 'Download all originals available Aug 10'
-  return 'Download all originals'
+  if (!archiveDownloadUnlocked.value) return 'Download All available Aug 10'
+  return 'Download All'
 })
 const archiveDownloadPercent = computed(() => {
   const loaded = Number(archiveDownloadProgress.value.loadedBytes || 0)
@@ -1482,7 +1482,7 @@ async function downloadAllOriginals() {
       return
     }
 
-    const filename = payload.filename || 'friends-weekend-originals.zip'
+    const filename = payload.filename || 'friends-weekend-2026.zip'
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url

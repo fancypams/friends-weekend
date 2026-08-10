@@ -10,6 +10,8 @@ const ARCHIVE_FILENAME = 'friends-weekend-2026.zip'
 const MAX_ZIP32_BYTES = 0xffffffff
 const MAX_ZIP32_ENTRIES = 0xffff
 const PAGE_SIZE = 1000
+const SIGNED_URL_EXPIRES_IN_SECONDS = 60 * 60
+const SIGNED_URL_BATCH_SIZE = 100
 
 type MediaArchiveRow = {
   id: string
@@ -199,21 +201,36 @@ async function loadArchiveRows(admin: SupabaseClient, userId: string) {
 }
 
 async function signedManifest(admin: SupabaseClient, entries: ZipEntry[], totalBytes: number) {
-  const signedEntries = []
+  const signedUrlByPath = new Map<string, string>()
 
-  for (const entry of entries) {
-    const { data, error } = await admin.storage.from(BUCKET).createSignedUrl(entry.path, 60 * 60)
-    if (error || !data?.signedUrl) {
-      throw new Error(error?.message || `Could not sign ${entry.name}`)
+  for (let index = 0; index < entries.length; index += SIGNED_URL_BATCH_SIZE) {
+    const batch = entries.slice(index, index + SIGNED_URL_BATCH_SIZE)
+    const { data, error } = await admin.storage
+      .from(BUCKET)
+      .createSignedUrls(batch.map((entry) => entry.path), SIGNED_URL_EXPIRES_IN_SECONDS)
+    if (error || !Array.isArray(data)) {
+      throw new Error(error?.message || 'Could not sign archive media')
     }
 
-    signedEntries.push({
+    for (const signed of data) {
+      if (signed.error || !signed.path || !signed.signedUrl) {
+        throw new Error(signed.error || `Could not sign ${signed.path || 'archive media'}`)
+      }
+      signedUrlByPath.set(signed.path, signed.signedUrl)
+    }
+  }
+
+  const signedEntries = entries.map((entry) => {
+    const url = signedUrlByPath.get(entry.path)
+    if (!url) throw new Error(`Could not sign ${entry.name}`)
+
+    return {
       name: entry.name,
-      url: data.signedUrl,
+      url,
       bytes: entry.bytes,
       publishedAt: entry.publishedAt,
-    })
-  }
+    }
+  })
 
   return {
     filename: ARCHIVE_FILENAME,

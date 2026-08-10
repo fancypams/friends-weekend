@@ -339,7 +339,9 @@ export async function downloadMediaArchive(options = {}) {
     totalBytes: 0,
     itemCount: 0,
   })
-  const manifest = await callFunction('download-media-archive?manifest=1')
+  const manifest = await callFunction('download-media-archive?manifest=1', {
+    timeoutMs: 120000,
+  })
   return buildArchiveFromManifest(manifest, options.onProgress)
 }
 
