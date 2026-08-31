@@ -38,9 +38,10 @@ Set these environment variables for edge functions:
 - `RESEND_FROM`
 
 `download-media-archive` uses the Resend secrets to email each requester a
-seven-day signed link after streaming their personalized ZIP into the private
-`media-archives` bucket. The ZIP includes published originals from other guests
-and intentionally excludes the requester's own uploads.
+confirmation when the job starts, followed by a seven-day signed link after
+streaming their personalized ZIP into the private `media-archives` bucket. The
+ZIP includes published originals from other guests and intentionally excludes
+the requester's own uploads.
 
 ### Monitor archive jobs
 
@@ -75,7 +76,10 @@ order by requested_at desc;
 Jobs move through `queued`, `building`, `uploading`, `signing`, `emailing`, and
 then `sent` or `failed`. During `uploading`, the item and byte counters update
 after each source file is streamed into the ZIP. A reused archive skips the
-streaming work and records `reused = true`.
+streaming work and records `reused = true`. Confirmation delivery is recorded
+separately in `audit_log` as `media_archive.confirmation_sent` or
+`media_archive.confirmation_failed`; a confirmation failure does not cancel the
+archive job.
 
 ## 4) Deploy Functions
 
