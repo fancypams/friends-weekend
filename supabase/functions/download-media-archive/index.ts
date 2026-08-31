@@ -31,6 +31,8 @@ type ArchiveJob = {
   entries: ZipEntry[]
   version: string
   requestId: string
+  archivePath: string
+  totalBytes: number
   resendApiKey: string
   resendFrom: string
 }
@@ -41,14 +43,43 @@ function requireEnv(name: string) {
   return value
 }
 
-async function uploadArchive(job: ArchiveJob, archivePath: string) {
-  const { data: existing } = await job.admin.storage.from(ARCHIVE_BUCKET).info(archivePath)
+async function updateArchiveJob(job: ArchiveJob, values: Record<string, unknown>) {
+  const { error } = await job.admin
+    .from('media_archive_jobs')
+    .update(values)
+    .eq('id', job.requestId)
+  if (error) throw new Error(`Could not update archive job: ${error.message}`)
+}
+
+async function updateArchiveProgress(
+  job: ArchiveJob,
+  processedItems: number,
+  processedBytes: number,
+) {
+  try {
+    await updateArchiveJob(job, {
+      processed_items: processedItems,
+      processed_bytes: processedBytes,
+    })
+  } catch (error) {
+    console.error('Could not record media archive progress', {
+      requestId: job.requestId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+async function uploadArchive(job: ArchiveJob) {
+  const { data: existing } = await job.admin.storage.from(ARCHIVE_BUCKET).info(job.archivePath)
   const metadata = (existing?.metadata || {}) as Record<string, unknown>
   const canReuse = String(metadata.archiveVersion || '') === job.version
   if (canReuse) return true
 
-  const { stream, completed } = createZipStream(job.admin, job.entries)
-  const upload = job.admin.storage.from(ARCHIVE_BUCKET).upload(archivePath, stream, {
+  await updateArchiveJob(job, { status: 'uploading' })
+  const { stream, completed } = createZipStream(job.admin, job.entries, (progress) =>
+    updateArchiveProgress(job, progress.processedItems, progress.processedBytes)
+  )
+  const upload = job.admin.storage.from(ARCHIVE_BUCKET).upload(job.archivePath, stream, {
     cacheControl: '0',
     contentType: 'application/zip',
     metadata: { archive_version: job.version },
@@ -67,13 +98,12 @@ async function createDownloadUrl(admin: SupabaseClient, archivePath: string) {
   return data.signedUrl
 }
 
-async function recordJob(job: ArchiveJob, action: 'sent' | 'failed', details: Record<string, unknown>) {
-  const archivePath = `${job.userId}/${ARCHIVE_FILENAME}`
+async function recordAudit(job: ArchiveJob, action: 'sent' | 'failed', details: Record<string, unknown>) {
   await audit(job.admin, {
     actorId: job.userId,
     action: `media_archive.${action}`,
     entity: 'storage.objects',
-    entityId: `${ARCHIVE_BUCKET}/${archivePath}`,
+    entityId: `${ARCHIVE_BUCKET}/${job.archivePath}`,
     details: {
       item_count: job.entries.length,
       request_id: job.requestId,
@@ -83,10 +113,26 @@ async function recordJob(job: ArchiveJob, action: 'sent' | 'failed', details: Re
 }
 
 async function prepareAndEmailArchive(job: ArchiveJob) {
-  const archivePath = `${job.userId}/${ARCHIVE_FILENAME}`
   try {
-    const reused = await uploadArchive(job, archivePath)
-    const downloadUrl = await createDownloadUrl(job.admin, archivePath)
+    await updateArchiveJob(job, {
+      status: 'building',
+      started_at: new Date().toISOString(),
+    })
+    const reused = await uploadArchive(job)
+    await updateArchiveJob(job, {
+      status: 'signing',
+      reused,
+      processed_items: job.entries.length,
+      processed_bytes: job.totalBytes,
+      uploaded_at: new Date().toISOString(),
+    })
+
+    const downloadUrl = await createDownloadUrl(job.admin, job.archivePath)
+    await updateArchiveJob(job, {
+      status: 'emailing',
+      signed_at: new Date().toISOString(),
+    })
+
     const emailId = await sendArchiveEmail({
       apiKey: job.resendApiKey,
       from: job.resendFrom,
@@ -97,10 +143,24 @@ async function prepareAndEmailArchive(job: ArchiveJob) {
       requestId: job.requestId,
     })
 
-    await recordJob(job, 'sent', {
+    const completedAt = new Date().toISOString()
+    await updateArchiveJob(job, {
+      status: 'sent',
+      provider_message_id: emailId || null,
+      emailed_at: completedAt,
+      completed_at: completedAt,
+      error_message: null,
+    })
+
+    await recordAudit(job, 'sent', {
       email_id: emailId || null,
       link_expires_in_seconds: ARCHIVE_LINK_TTL_SECONDS,
       reused,
+    }).catch((error) => {
+      console.error('Could not record successful media archive audit event', {
+        requestId: job.requestId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -109,7 +169,12 @@ async function prepareAndEmailArchive(job: ArchiveJob) {
       requestId: job.requestId,
       error: message,
     })
-    await recordJob(job, 'failed', { error: message }).catch(() => undefined)
+    await updateArchiveJob(job, {
+      status: 'failed',
+      error_message: message.slice(0, 2000),
+      completed_at: new Date().toISOString(),
+    }).catch(() => undefined)
+    await recordAudit(job, 'failed', { error: message }).catch(() => undefined)
   }
 }
 
@@ -153,14 +218,36 @@ Deno.serve(async (req) => {
   }
 
   const requestId = crypto.randomUUID()
+  let version = ''
+  try {
+    version = await archiveVersion(rows)
+  } catch (error) {
+    return serverError('Could not prepare media archive', error instanceof Error ? error.message : String(error))
+  }
+  const archivePath = `${auth.user.id}/${ARCHIVE_FILENAME}`
+  const totalBytes = entries.reduce((sum, entry) => sum + entry.bytes, 0)
+  const { error: jobError } = await auth.admin.from('media_archive_jobs').insert({
+    id: requestId,
+    user_id: auth.user.id,
+    recipient_email: email,
+    status: 'queued',
+    item_count: entries.length,
+    total_bytes: totalBytes,
+    archive_path: archivePath,
+    archive_version: version,
+  })
+  if (jobError) return serverError('Could not queue media archive', jobError.message)
+
   EdgeRuntime.waitUntil(prepareAndEmailArchive({
     admin: auth.admin,
     userId: auth.user.id,
     email,
     displayName: auth.profile.display_name,
     entries,
-    version: await archiveVersion(rows),
+    version,
     requestId,
+    archivePath,
+    totalBytes,
     resendApiKey,
     resendFrom,
   }))
