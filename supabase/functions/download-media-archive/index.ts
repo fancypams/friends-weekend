@@ -1,5 +1,9 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
-import { archiveRecipientName, sendArchiveEmail } from '../_shared/media-archive-email.ts'
+import {
+  archiveRecipientName,
+  sendArchiveConfirmationEmail,
+  sendArchiveEmail,
+} from '../_shared/media-archive-email.ts'
 import {
   archiveVersion,
   buildZipEntries,
@@ -98,7 +102,9 @@ async function createDownloadUrl(admin: SupabaseClient, archivePath: string) {
   return data.signedUrl
 }
 
-async function recordAudit(job: ArchiveJob, action: 'sent' | 'failed', details: Record<string, unknown>) {
+type ArchiveAuditAction = 'confirmation_sent' | 'confirmation_failed' | 'sent' | 'failed'
+
+async function recordAudit(job: ArchiveJob, action: ArchiveAuditAction, details: Record<string, unknown>) {
   await audit(job.admin, {
     actorId: job.userId,
     action: `media_archive.${action}`,
@@ -112,12 +118,45 @@ async function recordAudit(job: ArchiveJob, action: 'sent' | 'failed', details: 
   })
 }
 
+async function sendConfirmation(job: ArchiveJob) {
+  let emailId = ''
+  try {
+    emailId = await sendArchiveConfirmationEmail({
+      apiKey: job.resendApiKey,
+      from: job.resendFrom,
+      to: job.email,
+      name: archiveRecipientName(job.displayName, job.email),
+      itemCount: job.entries.length,
+      requestId: job.requestId,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('Could not send media archive confirmation email', {
+      requestId: job.requestId,
+      error: message,
+    })
+    await recordAudit(job, 'confirmation_failed', { error: message }).catch(() => undefined)
+    return
+  }
+
+  await recordAudit(job, 'confirmation_sent', {
+    email_id: emailId || null,
+  }).catch((error) => {
+    console.error('Could not record media archive confirmation audit event', {
+      requestId: job.requestId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })
+}
+
 async function prepareAndEmailArchive(job: ArchiveJob) {
   try {
     await updateArchiveJob(job, {
       status: 'building',
       started_at: new Date().toISOString(),
     })
+    await sendConfirmation(job)
+
     const reused = await uploadArchive(job)
     await updateArchiveJob(job, {
       status: 'signing',
