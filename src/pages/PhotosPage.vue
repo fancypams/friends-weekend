@@ -10,11 +10,11 @@ import { bypassAuth, hasSupabaseConfig, supabase } from '../lib/supabaseClient'
 import {
   completeUpload,
   createUploadTicket,
-  downloadMediaArchive,
   fetchGalleryFeed,
   fetchProfile,
   fetchUploadWindow,
   removeMedia,
+  requestMediaArchiveEmail,
   signMediaUrl,
   uploadWithSignedTicket,
   uploadWithSignedUploadUrl,
@@ -37,14 +37,9 @@ const uploadWindow = ref(null)
 const uploadWindowLoading = ref(false)
 const uploadWindowError = ref('')
 const uploadWindowUnavailable = ref(false)
-const archiveDownloadBusy = ref(false)
-const archiveDownloadError = ref('')
-const archiveDownloadProgress = ref({
-  phase: 'idle',
-  loadedBytes: 0,
-  totalBytes: 0,
-  itemCount: 0,
-})
+const archiveRequestBusy = ref(false)
+const archiveRequestError = ref('')
+const archiveRequestSuccess = ref('')
 const nativePickerRef = ref(null)
 const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const isMobileViewport = ref(typeof window !== 'undefined' ? window.innerWidth <= 699 : false)
@@ -115,7 +110,7 @@ const CAPTURE_WINDOW_END_MS = Date.parse('2026-08-10T06:59:59.999Z') // Aug 9 23
 const TRIP_END_MS = Date.parse('2026-08-10T07:00:00.000Z') // Aug 10 00:00 Seattle (PDT)
 const POST_TRIP_UPLOAD_END_MS = Date.parse('2026-08-10T07:00:00.000Z') // Aug 10 00:00 Seattle (PDT)
 const CAPTURE_WINDOW_LABEL = 'Jul 30-Aug 9, 2026 (Seattle time)'
-const ARCHIVE_DOWNLOAD_UNLOCK_MS = POST_TRIP_UPLOAD_END_MS
+const ARCHIVE_EMAIL_UNLOCK_MS = POST_TRIP_UPLOAD_END_MS
 const PT_UTC_OFFSET_HOURS = 7 // Event is in summer (PDT, UTC-7)
 const PT_OFFSET_MS = PT_UTC_OFFSET_HOURS * 60 * 60 * 1000
 const DAILY_REVEAL_HOUR_PT = 21 // 9:00 PM PT
@@ -143,36 +138,12 @@ const activeUploadCount = computed(() => (
 const failedUploadCount = computed(() => queueItems.value.filter((item) => item.status === 'failed').length)
 const failedUploadItems = computed(() => queueItems.value.filter((item) => item.status === 'failed'))
 const pendingUploadCount = computed(() => queuedUploadCount.value + activeUploadCount.value)
-const archiveDownloadUnlocked = computed(() => uploadClockMs.value >= ARCHIVE_DOWNLOAD_UNLOCK_MS)
-const archiveDownloadLabel = computed(() => {
-  if (archiveDownloadBusy.value && archiveDownloadPercent.value > 0) {
-    return `Downloading ${archiveDownloadPercent.value}%`
-  }
-  if (archiveDownloadBusy.value) return 'Preparing ZIP...'
-  if (!archiveDownloadUnlocked.value) return 'Download All available Aug 10'
-  return 'Download All'
-})
-const archiveDownloadPercent = computed(() => {
-  const loaded = Number(archiveDownloadProgress.value.loadedBytes || 0)
-  const total = Number(archiveDownloadProgress.value.totalBytes || 0)
-  if (!loaded || !total) return 0
-  return Math.max(1, Math.min(99, Math.round((loaded / total) * 100)))
-})
-const archiveDownloadProgressStyle = computed(() => ({
-  width: `${archiveDownloadPercent.value || (archiveDownloadBusy.value ? 8 : 0)}%`,
-}))
-const archiveDownloadStatus = computed(() => {
-  if (!archiveDownloadBusy.value) return ''
-
-  const phase = archiveDownloadProgress.value.phase
-  const loaded = Number(archiveDownloadProgress.value.loadedBytes || 0)
-  const total = Number(archiveDownloadProgress.value.totalBytes || 0)
-  const count = Number(archiveDownloadProgress.value.itemCount || 0)
-  const fileCopy = count ? `${count} file${count === 1 ? '' : 's'}` : 'archive'
-
-  if (phase === 'requesting' || !loaded) return `Preparing ${fileCopy}...`
-  if (total) return `Downloading ${formatBytes(loaded)} of ${formatBytes(total)}`
-  return `Downloading ${formatBytes(loaded)}`
+const archiveEmailUnlocked = computed(() => uploadClockMs.value >= ARCHIVE_EMAIL_UNLOCK_MS)
+const archiveRequestLabel = computed(() => {
+  if (archiveRequestBusy.value) return 'Queuing ZIP...'
+  if (!archiveEmailUnlocked.value) return 'Email archive available Aug 10'
+  if (archiveRequestSuccess.value) return 'Email me another link'
+  return 'Email me a ZIP'
 })
 const uploadStatusMessage = computed(() => {
   if (pendingUploadCount.value > 0) return `Uploading ${pendingUploadCount.value} file(s)…`
@@ -308,22 +279,6 @@ function guessMimeFromName(name) {
   if (ext === 'mp4' || ext === 'm4v') return 'video/mp4'
   if (ext === 'mov') return 'video/quicktime'
   return ''
-}
-
-function formatBytes(value) {
-  const bytes = Number(value || 0)
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-
-  const units = ['B', 'KB', 'MB', 'GB']
-  let size = bytes
-  let unitIndex = 0
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024
-    unitIndex += 1
-  }
-
-  const precision = unitIndex === 0 || size >= 10 ? 0 : 1
-  return `${size.toFixed(precision)} ${units[unitIndex]}`
 }
 
 function normalizedMime(file) {
@@ -1457,56 +1412,25 @@ function openNativeUploadPicker() {
   input.click()
 }
 
-async function downloadAllOriginals() {
-  if (!archiveDownloadUnlocked.value || archiveDownloadBusy.value) return
+async function requestArchiveEmail() {
+  if (!archiveEmailUnlocked.value || archiveRequestBusy.value) return
 
-  archiveDownloadBusy.value = true
-  archiveDownloadError.value = ''
-  archiveDownloadProgress.value = {
-    phase: 'requesting',
-    loadedBytes: 0,
-    totalBytes: 0,
-    itemCount: 0,
-  }
+  archiveRequestBusy.value = true
+  archiveRequestError.value = ''
+  archiveRequestSuccess.value = ''
 
   try {
-    const payload = await withSessionRetry(() => downloadMediaArchive({
-      onProgress: (progress) => {
-        archiveDownloadProgress.value = {
-          phase: progress?.phase || 'downloading',
-          loadedBytes: Number(progress?.loadedBytes || 0),
-          totalBytes: Number(progress?.totalBytes || 0),
-          itemCount: Number(progress?.itemCount || 0),
-        }
-      },
-    }))
-    const blob = payload?.blob
-    if (!blob?.size) {
-      archiveDownloadError.value = 'No media from other guests is available to download.'
-      return
-    }
-
-    const filename = payload.filename || 'friends-weekend-2026.zip'
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 5000)
+    const payload = await withSessionRetry(() => requestMediaArchiveEmail())
+    const deliveryEmail = String(payload?.email || currentUserEmail.value || '').trim()
+    archiveRequestSuccess.value = deliveryEmail
+      ? `We’re building your ZIP now. A private download link will be emailed to ${deliveryEmail}.`
+      : 'We’re building your ZIP now. A private download link will arrive by email.'
   } catch (err) {
     if (!(await maybeReauth(err))) {
-      archiveDownloadError.value = normalizeUploadError(err) || 'Could not prepare archive.'
+      archiveRequestError.value = normalizeUploadError(err) || 'Could not queue your archive email.'
     }
   } finally {
-    archiveDownloadBusy.value = false
-    archiveDownloadProgress.value = {
-      phase: 'idle',
-      loadedBytes: 0,
-      totalBytes: 0,
-      itemCount: 0,
-    }
+    archiveRequestBusy.value = false
   }
 }
 
@@ -1991,27 +1915,24 @@ onUnmounted(() => {
                 Preview mode is on: other people's uploads are intentionally shown as locked.
               </p>
             </div>
-            <div class="archive-download">
+            <div class="archive-email">
               <button
-                class="btn soft archive-download-btn"
+                class="btn soft archive-email-btn"
                 type="button"
-                :disabled="!archiveDownloadUnlocked || archiveDownloadBusy"
-                @click="downloadAllOriginals"
+                :disabled="!archiveEmailUnlocked || archiveRequestBusy"
+                @click="requestArchiveEmail"
               >
-                {{ archiveDownloadLabel }}
+                {{ archiveRequestLabel }}
               </button>
-              <div
-                v-if="archiveDownloadBusy"
-                class="archive-download-progress"
+              <small
+                v-if="archiveRequestSuccess"
+                class="archive-email-success"
                 role="status"
                 aria-live="polite"
               >
-                <span>{{ archiveDownloadStatus }}</span>
-                <div class="archive-download-meter" aria-hidden="true">
-                  <span :style="archiveDownloadProgressStyle"></span>
-                </div>
-              </div>
-              <small v-if="archiveDownloadError" class="archive-download-error">{{ archiveDownloadError }}</small>
+                {{ archiveRequestSuccess }}
+              </small>
+              <small v-if="archiveRequestError" class="archive-email-error">{{ archiveRequestError }}</small>
             </div>
           </header>
 
@@ -2179,52 +2100,31 @@ onUnmounted(() => {
   gap: 10px;
 }
 
-.archive-download {
+.archive-email {
   display: grid;
   justify-items: end;
   gap: 5px;
   max-width: 260px;
 }
 
-.archive-download-btn {
+.archive-email-btn {
   white-space: normal;
   line-height: 1.2;
 }
 
-.archive-download-progress {
-  display: grid;
-  gap: 5px;
-  width: 100%;
-  color: var(--driftwood);
+.archive-email-error,
+.archive-email-success {
   font-size: 0.76rem;
-  font-weight: 700;
   line-height: 1.3;
   text-align: right;
 }
 
-.archive-download-meter {
-  width: 100%;
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(95, 145, 151, 0.18);
-}
-
-.archive-download-meter span {
-  display: block;
-  min-width: 8%;
-  max-width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--deep-sky);
-  transition: width 160ms ease;
-}
-
-.archive-download-error {
+.archive-email-error {
   color: var(--red-error);
-  font-size: 0.76rem;
-  line-height: 1.3;
-  text-align: right;
+}
+
+.archive-email-success {
+  color: var(--forest);
 }
 
 .welcome-heading {
@@ -2464,16 +2364,13 @@ h2 {
     flex-direction: column;
   }
 
-  .archive-download {
+  .archive-email {
     justify-items: stretch;
     max-width: none;
   }
 
-  .archive-download-error {
-    text-align: left;
-  }
-
-  .archive-download-progress {
+  .archive-email-error,
+  .archive-email-success {
     text-align: left;
   }
 

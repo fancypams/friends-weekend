@@ -34,6 +34,13 @@ Set these environment variables for edge functions:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `PROCESSOR_SECRET`
+- `RESEND_API_KEY`
+- `RESEND_FROM`
+
+`download-media-archive` uses the Resend secrets to email each requester a
+seven-day signed link after streaming their personalized ZIP into the private
+`media-archives` bucket. The ZIP includes published originals from other guests
+and intentionally excludes the requester's own uploads.
 
 ## 4) Deploy Functions
 
