@@ -36,12 +36,31 @@ Set these environment variables for edge functions:
 - `PROCESSOR_SECRET`
 - `RESEND_API_KEY`
 - `RESEND_FROM`
+- `GITHUB_ARCHIVE_TOKEN`
+- `GITHUB_ARCHIVE_REPOSITORY`
 
 `download-media-archive` uses the Resend secrets to email each requester a
-confirmation when the job starts, followed by a seven-day signed link after
-streaming their personalized ZIP into the private `media-archives` bucket. The
-ZIP includes published originals from other guests and intentionally excludes
-the requester's own uploads.
+confirmation when the job starts, then dispatches the durable GitHub Actions
+worker in `.github/workflows/media-archive-worker.yml`. The worker builds the
+ZIP outside the Edge Function runtime, uploads it resumably into the private
+`media-archives` bucket, and emails a seven-day signed link. The ZIP includes
+published originals from other guests and intentionally excludes the
+requester's own uploads.
+
+`GITHUB_ARCHIVE_TOKEN` must be a fine-grained token scoped only to the archive
+worker repository with **Contents: write**, which GitHub requires for repository
+dispatch events. Set `GITHUB_ARCHIVE_REPOSITORY` to `owner/repository`.
+
+Configure these GitHub Actions repository secrets for the worker:
+
+- `ARCHIVE_SUPABASE_URL`
+- `ARCHIVE_SUPABASE_SERVICE_ROLE_KEY`
+- `ARCHIVE_RESEND_API_KEY`
+- `ARCHIVE_RESEND_FROM`
+
+Keep the service-role and Resend credentials scoped to this private repository.
+The workflow never stores the finished ZIP as a GitHub artifact; its temporary
+runner files are deleted when the job ends.
 
 ### Monitor archive jobs
 
@@ -53,13 +72,22 @@ select
   id,
   recipient_email,
   status,
+  worker_stage,
   processed_items,
   item_count,
   case
     when total_bytes = 0 then 0
     else round(least(100, processed_bytes * 100.0 / total_bytes), 1)
   end as progress_percent,
+  uploaded_bytes,
+  archive_bytes,
+  case
+    when coalesce(archive_bytes, 0) = 0 then 0
+    else round(least(100, uploaded_bytes * 100.0 / archive_bytes), 1)
+  end as upload_percent,
   reused,
+  worker_run_id,
+  attempt_count,
   provider_message_id,
   error_message,
   requested_at,
@@ -67,6 +95,7 @@ select
   uploaded_at,
   signed_at,
   emailed_at,
+  heartbeat_at,
   updated_at,
   completed_at
 from public.media_archive_jobs
@@ -74,12 +103,21 @@ order by requested_at desc;
 ```
 
 Jobs move through `queued`, `building`, `uploading`, `signing`, `emailing`, and
-then `sent` or `failed`. During `uploading`, the item and byte counters update
-after each source file is streamed into the ZIP. A reused archive skips the
-streaming work and records `reused = true`. Confirmation delivery is recorded
-separately in `audit_log` as `media_archive.confirmation_sent` or
+then `sent` or `failed`. `worker_stage` distinguishes downloading from zipping.
+During downloading, the processed item and byte counters update after each
+source file; during uploading, `uploaded_bytes` advances against
+`archive_bytes`. `heartbeat_at` updates every 15 seconds even when a large file
+or ZIP step leaves the item count unchanged. A reused archive skips building and
+uploading and records `reused = true`. Confirmation delivery is recorded in
+`audit_log` as `media_archive.confirmation_sent` or
 `media_archive.confirmation_failed`; a confirmation failure does not cancel the
 archive job.
+
+To retry a nonterminal or failed request manually:
+
+```bash
+gh workflow run media-archive-worker.yml -f request_id=REQUEST_UUID
+```
 
 ## 4) Deploy Functions
 

@@ -4,7 +4,12 @@ const DEFAULT_IMAGE_MAX_BYTES = 25 * 1024 * 1024
 const DEFAULT_VIDEO_MAX_BYTES = 250 * 1024 * 1024
 
 function envInt(name: string, fallback: number) {
-  const value = Number(Deno.env.get(name) ?? NaN)
+  const runtime = globalThis as typeof globalThis & {
+    Deno?: { env?: { get?: (key: string) => string | undefined } }
+    process?: { env?: Record<string, string | undefined> }
+  }
+  const raw = runtime.Deno?.env?.get?.(name) ?? runtime.process?.env?.[name]
+  const value = Number(raw ?? NaN)
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
 }
 

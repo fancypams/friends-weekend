@@ -1,0 +1,51 @@
+name: Process media archive
+
+run-name: Media archive ${{ github.event.client_payload.request_id || inputs.request_id }}
+
+on:
+  repository_dispatch:
+    types:
+      - media_archive_requested
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Archive request UUID to process or retry
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-archive-worker
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      REQUEST_ID: ${{ github.event.client_payload.request_id || inputs.request_id }}
+      SUPABASE_URL: ${{ secrets.ARCHIVE_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.ARCHIVE_SUPABASE_SERVICE_ROLE_KEY }}
+      RESEND_API_KEY: ${{ secrets.ARCHIVE_RESEND_API_KEY }}
+      RESEND_FROM: ${{ secrets.ARCHIVE_RESEND_FROM }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify archive tools
+        run: zip -v && unzip -v
+
+      - name: Process archive
+        run: node --experimental-strip-types scripts/media-archive-worker.ts "$REQUEST_ID"

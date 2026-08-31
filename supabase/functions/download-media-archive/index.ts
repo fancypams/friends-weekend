@@ -2,17 +2,14 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import {
   archiveRecipientName,
   sendArchiveConfirmationEmail,
-  sendArchiveEmail,
 } from '../_shared/media-archive-email.ts'
 import {
   archiveVersion,
   buildZipEntries,
-  createZipStream,
   estimateZipBytes,
   loadArchiveRows,
   MAX_ZIP32_BYTES,
   MAX_ZIP32_ENTRIES,
-  type ZipEntry,
 } from '../_shared/media-archive-zip.ts'
 import { audit } from '../_shared/audit.ts'
 import { requireAuth } from '../_shared/auth.ts'
@@ -20,11 +17,8 @@ import { POST_TRIP_UPLOAD_END_ISO } from '../_shared/capture-window.ts'
 import { handleOptions } from '../_shared/cors.ts'
 import { assertMethod, forbidden, json, serverError } from '../_shared/http.ts'
 
-declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
-
 const ARCHIVE_BUCKET = 'media-archives'
 const ARCHIVE_FILENAME = 'friends-weekend-2026.zip'
-const ARCHIVE_LINK_TTL_SECONDS = 7 * 24 * 60 * 60
 const ARCHIVE_UNLOCK_AT_MS = Date.parse(POST_TRIP_UPLOAD_END_ISO)
 
 type ArchiveJob = {
@@ -32,11 +26,9 @@ type ArchiveJob = {
   userId: string
   email: string
   displayName: string | null
-  entries: ZipEntry[]
-  version: string
+  itemCount: number
   requestId: string
   archivePath: string
-  totalBytes: number
   resendApiKey: string
   resendFrom: string
 }
@@ -55,54 +47,7 @@ async function updateArchiveJob(job: ArchiveJob, values: Record<string, unknown>
   if (error) throw new Error(`Could not update archive job: ${error.message}`)
 }
 
-async function updateArchiveProgress(
-  job: ArchiveJob,
-  processedItems: number,
-  processedBytes: number,
-) {
-  try {
-    await updateArchiveJob(job, {
-      processed_items: processedItems,
-      processed_bytes: processedBytes,
-    })
-  } catch (error) {
-    console.error('Could not record media archive progress', {
-      requestId: job.requestId,
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
-}
-
-async function uploadArchive(job: ArchiveJob) {
-  const { data: existing } = await job.admin.storage.from(ARCHIVE_BUCKET).info(job.archivePath)
-  const metadata = (existing?.metadata || {}) as Record<string, unknown>
-  const canReuse = String(metadata.archiveVersion || '') === job.version
-  if (canReuse) return true
-
-  await updateArchiveJob(job, { status: 'uploading' })
-  const { stream, completed } = createZipStream(job.admin, job.entries, (progress) =>
-    updateArchiveProgress(job, progress.processedItems, progress.processedBytes)
-  )
-  const upload = job.admin.storage.from(ARCHIVE_BUCKET).upload(job.archivePath, stream, {
-    cacheControl: '0',
-    contentType: 'application/zip',
-    metadata: { archive_version: job.version },
-    upsert: true,
-  })
-  const [{ error }] = await Promise.all([upload, completed])
-  if (error) throw new Error(error.message)
-  return false
-}
-
-async function createDownloadUrl(admin: SupabaseClient, archivePath: string) {
-  const { data, error } = await admin.storage
-    .from(ARCHIVE_BUCKET)
-    .createSignedUrl(archivePath, ARCHIVE_LINK_TTL_SECONDS, { download: ARCHIVE_FILENAME })
-  if (error || !data?.signedUrl) throw new Error(error?.message || 'Could not sign archive link')
-  return data.signedUrl
-}
-
-type ArchiveAuditAction = 'confirmation_sent' | 'confirmation_failed' | 'sent' | 'failed'
+type ArchiveAuditAction = 'confirmation_sent' | 'confirmation_failed' | 'dispatch_failed'
 
 async function recordAudit(job: ArchiveJob, action: ArchiveAuditAction, details: Record<string, unknown>) {
   await audit(job.admin, {
@@ -111,7 +56,7 @@ async function recordAudit(job: ArchiveJob, action: ArchiveAuditAction, details:
     entity: 'storage.objects',
     entityId: `${ARCHIVE_BUCKET}/${job.archivePath}`,
     details: {
-      item_count: job.entries.length,
+      item_count: job.itemCount,
       request_id: job.requestId,
       ...details,
     },
@@ -126,7 +71,7 @@ async function sendConfirmation(job: ArchiveJob) {
       from: job.resendFrom,
       to: job.email,
       name: archiveRecipientName(job.displayName, job.email),
-      itemCount: job.entries.length,
+      itemCount: job.itemCount,
       requestId: job.requestId,
     })
   } catch (error) {
@@ -149,72 +94,29 @@ async function sendConfirmation(job: ArchiveJob) {
   })
 }
 
-async function prepareAndEmailArchive(job: ArchiveJob) {
-  try {
-    await updateArchiveJob(job, {
-      status: 'building',
-      started_at: new Date().toISOString(),
-    })
-    await sendConfirmation(job)
-
-    const reused = await uploadArchive(job)
-    await updateArchiveJob(job, {
-      status: 'signing',
-      reused,
-      processed_items: job.entries.length,
-      processed_bytes: job.totalBytes,
-      uploaded_at: new Date().toISOString(),
-    })
-
-    const downloadUrl = await createDownloadUrl(job.admin, job.archivePath)
-    await updateArchiveJob(job, {
-      status: 'emailing',
-      signed_at: new Date().toISOString(),
-    })
-
-    const emailId = await sendArchiveEmail({
-      apiKey: job.resendApiKey,
-      from: job.resendFrom,
-      to: job.email,
-      name: archiveRecipientName(job.displayName, job.email),
-      downloadUrl,
-      itemCount: job.entries.length,
-      requestId: job.requestId,
-    })
-
-    const completedAt = new Date().toISOString()
-    await updateArchiveJob(job, {
-      status: 'sent',
-      provider_message_id: emailId || null,
-      emailed_at: completedAt,
-      completed_at: completedAt,
-      error_message: null,
-    })
-
-    await recordAudit(job, 'sent', {
-      email_id: emailId || null,
-      link_expires_in_seconds: ARCHIVE_LINK_TTL_SECONDS,
-      reused,
-    }).catch((error) => {
-      console.error('Could not record successful media archive audit event', {
-        requestId: job.requestId,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.error('Failed to prepare media archive', {
-      userId: job.userId,
-      requestId: job.requestId,
-      error: message,
-    })
-    await updateArchiveJob(job, {
-      status: 'failed',
-      error_message: message.slice(0, 2000),
-      completed_at: new Date().toISOString(),
-    }).catch(() => undefined)
-    await recordAudit(job, 'failed', { error: message }).catch(() => undefined)
+async function dispatchArchiveJob(token: string, repository: string, requestId: string) {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+    throw new Error('GITHUB_ARCHIVE_REPOSITORY must use owner/repository format')
   }
+
+  const response = await fetch(`https://api.github.com/repos/${repository}/dispatches`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify({
+      event_type: 'media_archive_requested',
+      client_payload: { request_id: requestId },
+    }),
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (response.status === 204) return
+
+  const message = (await response.text()).slice(0, 500)
+  throw new Error(`GitHub worker dispatch failed (${response.status}): ${message}`)
 }
 
 Deno.serve(async (req) => {
@@ -235,11 +137,15 @@ Deno.serve(async (req) => {
 
   let resendApiKey = ''
   let resendFrom = ''
+  let githubArchiveToken = ''
+  let githubArchiveRepository = ''
   try {
     resendApiKey = requireEnv('RESEND_API_KEY')
     resendFrom = requireEnv('RESEND_FROM')
+    githubArchiveToken = requireEnv('GITHUB_ARCHIVE_TOKEN')
+    githubArchiveRepository = requireEnv('GITHUB_ARCHIVE_REPOSITORY')
   } catch (error) {
-    return serverError('Missing email provider configuration', String(error))
+    return serverError('Missing archive worker configuration', String(error))
   }
 
   let rows: Awaited<ReturnType<typeof loadArchiveRows>>
@@ -263,13 +169,14 @@ Deno.serve(async (req) => {
   } catch (error) {
     return serverError('Could not prepare media archive', error instanceof Error ? error.message : String(error))
   }
-  const archivePath = `${auth.user.id}/${ARCHIVE_FILENAME}`
+  const archivePath = `${auth.user.id}/${version}/${ARCHIVE_FILENAME}`
   const totalBytes = entries.reduce((sum, entry) => sum + entry.bytes, 0)
   const { error: jobError } = await auth.admin.from('media_archive_jobs').insert({
     id: requestId,
     user_id: auth.user.id,
     recipient_email: email,
     status: 'queued',
+    worker_stage: 'queued',
     item_count: entries.length,
     total_bytes: totalBytes,
     archive_path: archivePath,
@@ -277,19 +184,33 @@ Deno.serve(async (req) => {
   })
   if (jobError) return serverError('Could not queue media archive', jobError.message)
 
-  EdgeRuntime.waitUntil(prepareAndEmailArchive({
+  const job: ArchiveJob = {
     admin: auth.admin,
     userId: auth.user.id,
     email,
     displayName: auth.profile.display_name,
-    entries,
-    version,
+    itemCount: entries.length,
     requestId,
     archivePath,
-    totalBytes,
     resendApiKey,
     resendFrom,
-  }))
+  }
+
+  try {
+    await dispatchArchiveJob(githubArchiveToken, githubArchiveRepository, requestId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await updateArchiveJob(job, {
+      status: 'failed',
+      worker_stage: 'failed',
+      error_message: message.slice(0, 2000),
+      completed_at: new Date().toISOString(),
+    }).catch(() => undefined)
+    await recordAudit(job, 'dispatch_failed', { error: message }).catch(() => undefined)
+    return serverError('Could not start media archive worker')
+  }
+
+  await sendConfirmation(job)
 
   return json({ status: 'queued', email, itemCount: entries.length, requestId }, 202)
 })
