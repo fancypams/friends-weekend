@@ -22,6 +22,11 @@ export type ZipEntry = {
   publishedAt: string
 }
 
+export type ZipProgress = {
+  processedItems: number
+  processedBytes: number
+}
+
 type CentralEntry = {
   nameBytes: Uint8Array
   crc: number
@@ -173,7 +178,11 @@ export async function archiveVersion(rows: MediaArchiveRow[]) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-export function createZipStream(admin: SupabaseClient, entries: ZipEntry[]) {
+export function createZipStream(
+  admin: SupabaseClient,
+  entries: ZipEntry[],
+  onEntryComplete?: (progress: ZipProgress) => Promise<void> | void,
+) {
   const pipe = new TransformStream<Uint8Array, Uint8Array>()
   const writer = pipe.writable.getWriter()
 
@@ -181,6 +190,7 @@ export function createZipStream(admin: SupabaseClient, entries: ZipEntry[]) {
     const encoder = new TextEncoder()
     const centralEntries: CentralEntry[] = []
     let written = 0
+    let processedBytes = 0
 
     const write = async (chunk: Uint8Array) => {
       if (written + chunk.length > MAX_ZIP32_BYTES) throw new Error('Archive is too large for ZIP32')
@@ -214,6 +224,11 @@ export function createZipStream(admin: SupabaseClient, entries: ZipEntry[]) {
         crc = (crc ^ 0xffffffff) >>> 0
         await write(dataDescriptor(crc, bytes))
         centralEntries.push({ nameBytes, crc, bytes, offset, dosTime, dosDate })
+        processedBytes += bytes
+        await onEntryComplete?.({
+          processedItems: centralEntries.length,
+          processedBytes,
+        })
       }
 
       const centralOffset = written

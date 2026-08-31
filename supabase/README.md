@@ -42,6 +42,41 @@ seven-day signed link after streaming their personalized ZIP into the private
 `media-archives` bucket. The ZIP includes published originals from other guests
 and intentionally excludes the requester's own uploads.
 
+### Monitor archive jobs
+
+Each request creates a service-role-only row in `media_archive_jobs`. In the
+Supabase Dashboard, open **Table Editor → media_archive_jobs**, or run:
+
+```sql
+select
+  id,
+  recipient_email,
+  status,
+  processed_items,
+  item_count,
+  case
+    when total_bytes = 0 then 0
+    else round(least(100, processed_bytes * 100.0 / total_bytes), 1)
+  end as progress_percent,
+  reused,
+  provider_message_id,
+  error_message,
+  requested_at,
+  started_at,
+  uploaded_at,
+  signed_at,
+  emailed_at,
+  updated_at,
+  completed_at
+from public.media_archive_jobs
+order by requested_at desc;
+```
+
+Jobs move through `queued`, `building`, `uploading`, `signing`, `emailing`, and
+then `sent` or `failed`. During `uploading`, the item and byte counters update
+after each source file is streamed into the ZIP. A reused archive skips the
+streaming work and records `reused = true`.
+
 ## 4) Deploy Functions
 
 Deploy these functions:
